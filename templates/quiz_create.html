@@ -6,31 +6,35 @@
   <a href="{{url_for('quiz_page')}}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回</a>
 </div>
 
+<div class="alert alert-info"><i class="bi bi-robot"></i> 选择已填写场景/价值的功能，点击「<b>✨ AI 生成考题</b>」，系统会自动根据题目和参考答案（基于功能价值点生成），你<strong>确认或修改后</strong>再发布。发布后<strong>30 分钟内</strong>商务可抢答，<strong>超时自动截止</strong>；商务提交后<strong>系统用 AI 自动判分</strong>。</div>
+
 <div class="row">
   <div class="col-lg-8">
     <div class="card">
       <div class="card-body">
         <form method="post">
           <div class="mb-3">
-            <label class="form-label fw-bold">关联功能（可选）</label>
-            <select name="feature_id" class="form-select">
-              <option value="">不关联具体功能</option>
+            <label class="form-label fw-bold">关联功能 <span class="text-danger">*</span></label>
+            <select name="feature_id" id="feature_id" class="form-select" required>
+              <option value="">-- 请选择功能（须已填写场景/价值）--</option>
               {% for f in features %}
               <option value="{{f.id}}">{{f.name}} {% if f.code %}({{f.code}}){% endif %}</option>
               {% endfor %}
             </select>
-            <small class="text-muted">选择考题对应的功能，方便商务回顾</small>
+            <div class="mt-2">
+              <button type="button" id="genBtn" class="btn btn-warning btn-sm" onclick="generateQuiz()"><i class="bi bi-robot"></i> ✨ AI 生成考题</button>
+            </div>
+            <small class="text-muted">基于该功能的场景 + 价值点自动生成题目与参考答案</small>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">考题 <span class="text-danger">*</span></label>
-            <textarea name="question" class="form-control" rows="3" placeholder="例如：电子签名功能在什么场景下能帮助客户将签署效率提升90%？" required></textarea>
+            <textarea name="question" id="question" class="form-control" rows="3" placeholder="点上方「AI 生成考题」自动填充，或手动输入" required></textarea>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-bold">参考答案 / 判定关键词</label>
-            <textarea name="answer_hint" class="form-control" rows="3" placeholder="用于你判定回答是否正确，商务不可见。例如：需提到「跨地域签署」「分钟级」「审批流程」等关键词"></textarea>
-            <small class="text-muted">仅SFR可见，用于判分参考</small>
+            <label class="form-label fw-bold">参考答案 / 判分要点（SFR可见，商务不可见）</label>
+            <textarea name="answer_hint" id="answer_hint" class="form-control" rows="3" placeholder="AI 自动生成，你可修改。商务回答覆盖核心要点即判对"></textarea>
           </div>
-          <button class="btn btn-brand w-100"><i class="bi bi-send"></i> 发布考题</button>
+          <button class="btn btn-brand w-100"><i class="bi bi-send"></i> 发布考题（30分钟限时 · AI自动判分）</button>
         </form>
       </div>
     </div>
@@ -39,21 +43,52 @@
     <div class="card">
       <div class="card-header"><i class="bi bi-lightbulb"></i> 出题技巧</div>
       <div class="card-body small">
-        <p class="fw-bold text-primary">好考题的特点</p>
+        <p class="fw-bold text-primary">AI 帮你想题</p>
         <ul>
-          <li><strong>场景导向</strong>：问"什么场景下用"而非"功能叫什么"</li>
-          <li><strong>价值导向</strong>：问"解决了什么问题"</li>
-          <li><strong>开放但有锚点</strong>：允许多种回答，但有关键得分点</li>
+          <li>选好功能点「AI 生成」，免去手动想题</li>
+          <li>生成结果可直接修改，更符合你的考核重点</li>
+          <li>参考答案越具体，AI 判分越准</li>
         </ul>
         <hr>
-        <p class="fw-bold text-primary">判分建议</p>
-        <ul>
-          <li>答到核心关键词即算对</li>
-          <li>鼓励商务用自己的话表达</li>
-          <li>答对+1分，答错不扣分</li>
-        </ul>
+        <p class="fw-bold text-primary">流程</p>
+        <ol>
+          <li>选功能 → AI 生成</li>
+          <li>改题 → 发布</li>
+          <li>商务 30 分钟内抢答</li>
+          <li>系统 AI 自动判分 + 加分</li>
+          <li>SFR 可改判</li>
+        </ol>
       </div>
     </div>
   </div>
 </div>
+
+<script>
+function generateQuiz(){
+  var fid = document.getElementById('feature_id').value;
+  if(!fid){ alert('请先选择关联功能'); return; }
+  var btn = document.getElementById('genBtn');
+  var old = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 生成中...';
+  fetch('/api/generate-quiz?feature_id=' + fid)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.error){ alert(d.error); }
+      else {
+        document.getElementById('question').value = d.question || '';
+        document.getElementById('answer_hint').value = d.reference || '';
+        flash('已生成，可修改后发布', 'success');
+      }
+    })
+    .catch(function(e){ alert('生成失败：' + e); })
+    .finally(function(){ btn.disabled = false; btn.innerHTML = old; });
+}
+function flash(msg, type){
+  var box = document.createElement('div');
+  box.className = 'alert alert-' + (type||'info') + ' mt-2 py-1 px-2 small';
+  box.textContent = msg;
+  document.querySelector('form').prepend(box);
+  setTimeout(function(){ box.remove(); }, 2500);
+}
+</script>
 {% endblock %}

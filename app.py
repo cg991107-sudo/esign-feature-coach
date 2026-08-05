@@ -11,7 +11,7 @@ e签宝 · 功能价值教练 (Feature Value Coach)
 
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import (
@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS quizzes (
     status TEXT DEFAULT 'active' CHECK(status IN ('active','closed')),
     created_at TEXT DEFAULT (datetime('now','localtime')),
     closed_at TEXT,
+    published_at TEXT,
+    deadline TEXT,
+    duration_min INTEGER DEFAULT 30,
+    auto_generated INTEGER DEFAULT 0,
+    judge_mode TEXT DEFAULT 'manual',
     FOREIGN KEY (feature_id) REFERENCES features(id),
     FOREIGN KEY (sfr_id) REFERENCES users(id)
 );
@@ -88,6 +93,8 @@ CREATE TABLE IF NOT EXISTS answers (
     is_correct INTEGER,
     judged_by INTEGER,
     judged_at TEXT,
+    judge_reason TEXT,
+    auto_judged INTEGER DEFAULT 0,
     UNIQUE(quiz_id, user_id),
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
     FOREIGN KEY (user_id) REFERENCES users(id),
@@ -114,6 +121,35 @@ def close_db(exc):
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+    conn.commit()
+    conn.close()
+    migrate_db()
+
+
+def migrate_db():
+    """为已存在的库补充新列，保证升级后兼容。"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    q_cols = [r["name"] for r in conn.execute("PRAGMA table_info(quizzes)")]
+    for col, ddl in [
+        ("published_at", "TEXT"),
+        ("deadline", "TEXT"),
+        ("duration_min", "INTEGER DEFAULT 30"),
+        ("auto_generated", "INTEGER DEFAULT 0"),
+        ("judge_mode", "TEXT DEFAULT 'manual'"),
+    ]:
+        if col not in q_cols:
+            try:
+                conn.execute(f"ALTER TABLE quizzes ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass
+    a_cols = [r["name"] for r in conn.execute("PRAGMA table_info(answers)")]
+    for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0")]:
+        if col not in a_cols:
+            try:
+                conn.execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass
     conn.commit()
     conn.close()
 
@@ -526,19 +562,51 @@ def toggle_learn(fid):
 def quiz_page():
     u = current_user()
     db = get_db()
-    quizzes = db.execute("""SELECT q.*, f.name feature_name, u.name sfr_name,
+    rows = db.execute("""SELECT q.*, f.name feature_name, u.name sfr_name,
         (SELECT COUNT(*) FROM answers a WHERE a.quiz_id=q.id) ans_count,
         (SELECT COUNT(*) FROM answers a WHERE a.quiz_id=q.id AND a.is_correct=1) correct_count
         FROM quizzes q
         LEFT JOIN features f ON f.id=q.feature_id
         JOIN users u ON u.id=q.sfr_id
         ORDER BY q.status, q.created_at DESC""").fetchall()
+    quizzes = []
+    for r in rows:
+        d = dict(r)
+        dl_ts = None
+        if r["deadline"]:
+            try:
+                dl_ts = int(datetime.strptime(r["deadline"], "%Y-%m-%d %H:%M:%S").timestamp())
+            except Exception:
+                pass
+        d["deadline_ts"] = dl_ts
+        quizzes.append(d)
     # 商务待答题
     my_answers = {}
     if u["role"] == "business":
         ar = db.execute("SELECT quiz_id, is_correct FROM answers WHERE user_id=?", (u["id"],)).fetchall()
         my_answers = {r["quiz_id"]: r["is_correct"] for r in ar}
-    return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers)
+    return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers,
+                           now_ts=int(datetime.now().timestamp()))
+
+
+@app.route("/api/generate-quiz")
+@require_role("sfr", "admin")
+def api_generate_quiz():
+    fid = request.args.get("feature_id", type=int)
+    db = get_db()
+    f = db.execute("SELECT name,scenario,value_point FROM features WHERE id=?", (fid,)).fetchone()
+    if not f:
+        return jsonify({"error": "功能不存在"}), 404
+    if not (f["value_point"] or f["scenario"]):
+        return jsonify({"error": "该功能尚未填写场景/价值，无法生成考题"}), 400
+    try:
+        from ai_helper import ai_generate_quiz
+        res = ai_generate_quiz(f["name"], f["scenario"], f["value_point"])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if not res or not res.get("question"):
+        return jsonify({"error": "生成失败，请手动填写"}), 500
+    return jsonify({"question": res["question"], "reference": res.get("reference", "")})
 
 
 @app.route("/quiz/create", methods=["GET", "POST"])
@@ -549,16 +617,27 @@ def quiz_create():
         feature_id = request.form.get("feature_id", type=int)
         question = request.form.get("question", "").strip()
         answer_hint = request.form.get("answer_hint", "").strip()
+        if not feature_id:
+            flash("请选择关联功能", "danger")
+            return redirect(url_for("quiz_create"))
         if not question:
-            flash("问题不能为空", "danger")
+            flash("考题不能为空", "danger")
             return redirect(url_for("quiz_create"))
         u = current_user()
-        db.execute("""INSERT INTO quizzes(feature_id,question,answer_hint,sfr_id)
-                      VALUES(?,?,?,?)""", (feature_id, question, answer_hint, u["id"]))
+        now = datetime.now()
+        duration = 30
+        deadline = now + timedelta(minutes=duration)
+        db.execute("""INSERT INTO quizzes(feature_id,question,answer_hint,sfr_id,status,
+                                    published_at,deadline,duration_min,auto_generated,judge_mode)
+                      VALUES(?,?,?,?,'active',?,?,?,1,'ai')""",
+                   (feature_id, question, answer_hint, u["id"],
+                    now.strftime("%Y-%m-%d %H:%M:%S"),
+                    deadline.strftime("%Y-%m-%d %H:%M:%S"), duration))
         db.commit()
-        flash("考题已发布，等待商务抢答", "success")
+        flash("考题已发布（AI自动判分，30分钟内可抢答）", "success")
         return redirect(url_for("quiz_page"))
-    features = db.execute("SELECT * FROM features WHERE status='shared' ORDER BY name").fetchall()
+    features = db.execute(
+        "SELECT * FROM features WHERE value_point IS NOT NULL AND value_point!='' ORDER BY name").fetchall()
     return render_template("quiz_create.html", features=features, u=current_user())
 
 
@@ -575,13 +654,38 @@ def quiz_answer(qid):
     if not q or q["status"] != "active":
         flash("该题已关闭", "warning")
         return redirect(url_for("quiz_page"))
+    # 30 分钟限时检查
+    if q["deadline"]:
+        try:
+            dl = datetime.strptime(q["deadline"], "%Y-%m-%d %H:%M:%S")
+            if datetime.now() > dl:
+                flash(f"已超过作答时限（{q['duration_min'] or 30}分钟），无法抢答", "warning")
+                return redirect(url_for("quiz_page"))
+        except Exception:
+            pass
     exists = db.execute("SELECT id FROM answers WHERE quiz_id=? AND user_id=?", (qid, u["id"])).fetchone()
     if exists:
         flash("你已经回答过这道题了", "warning")
         return redirect(url_for("quiz_page"))
     db.execute("INSERT INTO answers(quiz_id,user_id,content) VALUES(?,?,?)", (qid, u["id"], content))
     db.commit()
-    flash("已提交回答，等待SFR判定", "info")
+    # AI 自动判分
+    try:
+        from ai_helper import ai_judge
+        res = ai_judge(q["question"], q["answer_hint"] or "", content)
+        correct = 1 if res.get("correct") else 0
+        reason = res.get("reason", "")
+    except Exception as e:
+        correct = 0
+        reason = f"判分异常：{e}"
+    db.execute("""UPDATE answers SET is_correct=?, judge_reason=?, auto_judged=1
+                  WHERE quiz_id=? AND user_id=?""",
+               (correct, reason, qid, u["id"]))
+    db.commit()
+    if correct:
+        flash("✅ 回答正确，+1分！", "success")
+    else:
+        flash(f"❌ 未通过AI判分：{reason}", "info")
     return redirect(url_for("quiz_page"))
 
 
@@ -598,7 +702,15 @@ def quiz_detail(qid):
                             FROM answers a JOIN users u ON u.id=a.user_id
                             LEFT JOIN users ju ON ju.id=a.judged_by
                             WHERE a.quiz_id=? ORDER BY a.answered_at""", (qid,)).fetchall()
-    return render_template("quiz_detail.html", q=q, answers=answers, u=current_user())
+    deadline_ts = None
+    if q["deadline"]:
+        try:
+            deadline_ts = int(datetime.strptime(q["deadline"], "%Y-%m-%d %H:%M:%S").timestamp())
+        except Exception:
+            pass
+    return render_template("quiz_detail.html", q=q, answers=answers,
+                           u=current_user(), now_ts=int(datetime.now().timestamp()),
+                           deadline_ts=deadline_ts)
 
 
 @app.route("/quiz/<int:qid>/judge/<int:aid>", methods=["POST"])
@@ -607,11 +719,11 @@ def quiz_judge(qid, aid):
     is_correct = request.form.get("is_correct") == "1"
     u = current_user()
     db = get_db()
-    db.execute("""UPDATE answers SET is_correct=?, judged_by=?, judged_at=?
+    db.execute("""UPDATE answers SET is_correct=?, judged_by=?, judged_at=?, auto_judged=0
                   WHERE id=?""", (1 if is_correct else 0, u["id"],
                                   datetime.now().strftime("%Y-%m-%d %H:%M"), aid))
     db.commit()
-    flash("已判定", "success")
+    flash("已改判（覆盖AI判分）", "success")
     return redirect(url_for("quiz_detail", qid=qid))
 
 
