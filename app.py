@@ -692,16 +692,35 @@ def quiz_answer(qid):
 @app.route("/quiz/<int:qid>")
 def quiz_detail(qid):
     db = get_db()
+    u = current_user()
     q = db.execute("""SELECT q.*, f.name feature_name, u.name sfr_name
                       FROM quizzes q LEFT JOIN features f ON f.id=q.feature_id
                       JOIN users u ON u.id=q.sfr_id WHERE q.id=?""", (qid,)).fetchone()
     if not q:
         flash("考题不存在", "danger")
         return redirect(url_for("quiz_page"))
-    answers = db.execute("""SELECT a.*, u.name user_name, ju.name judge_name
-                            FROM answers a JOIN users u ON u.id=a.user_id
-                            LEFT JOIN users ju ON ju.id=a.judged_by
-                            WHERE a.quiz_id=? ORDER BY a.answered_at""", (qid,)).fetchall()
+    is_privileged = bool(u and u["role"] in ("sfr", "admin"))
+    # 抢答进行中：仅 SFR/admin 可看他人回答；商务/游客只能看自己已提交的；
+    # 考题关闭后（复盘）全员可见
+    show_others = is_privileged or q["status"] != "active"
+    if show_others:
+        answers = db.execute("""SELECT a.*, u.name user_name, ju.name judge_name
+                                FROM answers a JOIN users u ON u.id=a.user_id
+                                LEFT JOIN users ju ON ju.id=a.judged_by
+                                WHERE a.quiz_id=? ORDER BY a.answered_at""", (qid,)).fetchall()
+    elif u:
+        answers = db.execute("""SELECT a.*, u.name user_name, ju.name judge_name
+                                FROM answers a JOIN users u ON u.id=a.user_id
+                                LEFT JOIN users ju ON ju.id=a.judged_by
+                                WHERE a.quiz_id=? AND a.user_id=? ORDER BY a.answered_at""",
+                             (qid, u["id"])).fetchall()
+    else:
+        answers = []
+    # 商务是否已答（用于详情页决定是否展示答题框）
+    my_answered = False
+    if u and u["role"] == "business":
+        my_answered = bool(db.execute(
+            "SELECT id FROM answers WHERE quiz_id=? AND user_id=?", (qid, u["id"])).fetchone())
     deadline_ts = None
     if q["deadline"]:
         try:
@@ -709,8 +728,9 @@ def quiz_detail(qid):
         except Exception:
             pass
     return render_template("quiz_detail.html", q=q, answers=answers,
-                           u=current_user(), now_ts=int(datetime.now().timestamp()),
-                           deadline_ts=deadline_ts)
+                           u=u, now_ts=int(datetime.now().timestamp()),
+                           deadline_ts=deadline_ts, show_others=show_others,
+                           my_answered=my_answered)
 
 
 @app.route("/quiz/<int:qid>/judge/<int:aid>", methods=["POST"])

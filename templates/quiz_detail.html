@@ -32,9 +32,27 @@
   </div>
 </div>
 
+{% if u and u.role in ('business','admin') and q.status=='active' and not my_answered %}
+<div class="card mb-3 border-success">
+  <div class="card-body">
+    <h6 class="fw-bold"><i class="bi bi-lightning-fill text-success"></i> 我要抢答</h6>
+    <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}">
+      <div class="input-group">
+        <input type="text" name="content" class="form-control" placeholder="输入你的回答..." required>
+        <button class="btn btn-success"><i class="bi bi-send"></i> 提交回答</button>
+      </div>
+      <small class="text-muted">每题仅能抢答一次，提交后由 AI 自动判分，发布后 30 分钟内有效。</small>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-chat-dots"></i> 抢答记录 ({{answers|length}})</span>
+    <span><i class="bi bi-chat-dots"></i>
+      {% if show_others %}抢答记录 ({{answers|length}})
+      {% else %}抢答记录（进行中保密）{% endif %}
+    </span>
     {% if u and u.role in ('sfr','admin') %}
     <button class="btn btn-sm btn-outline-primary copy-btn" onclick="copyQuiz()"><i class="bi bi-clipboard"></i> 复制考题到群</button>
     {% endif %}
@@ -68,8 +86,15 @@
         {% if a.judged_at %}<small class="text-muted">判定人：{{a.judge_name or '系统'}} · {{a.judged_at}}</small>{% endif %}
       </div>
       {% endfor %}
+      {% if not show_others %}
+      <div class="alert alert-light border mt-3 mb-0"><i class="bi bi-lock-fill text-muted"></i> 其他人的回答将在考题结束后统一公布，避免互相影响抢答。</div>
+      {% endif %}
     {% else %}
+      {% if show_others %}
       <div class="empty-state"><i class="bi bi-hourglass-split"></i><p>还没有人抢答，等等看~</p></div>
+      {% else %}
+      <div class="empty-state"><i class="bi bi-lock-fill"></i><p>抢答进行中，回答内容保密。<br>提交你的答案后即可在此查看自己的回答与判分；考题结束后将公布全部作答。</p></div>
+      {% endif %}
     {% endif %}
   </div>
 </div>
