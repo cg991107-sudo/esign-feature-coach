@@ -155,3 +155,47 @@ esign-feature-coach/
     ├── quiz_detail.html # 考题详情/判分
     └── ranking.html    # 排行榜
 ```
+
+## 部署到 Render（公网固定链接 · 7×24 在线）
+
+本地隧道经常断，部署到 Render 后获得固定公网地址，不依赖你电脑开机。
+
+### 第一步：把代码推到 GitHub
+
+> 代码已 `git init` 并提交到本地 `main` 分支（数据库已自动排除，不会上传）。
+
+1. 打开 https://github.com → 右上角 **New repository**
+2. 仓库名填 `esign-feature-coach`，选 **Private**（或 Public），**不要**勾选 Initialize with README
+3. 创建后，复制仓库地址（形如 `https://github.com/你的用户名/esign-feature-coach.git`）
+4. 在终端执行（替换成你的地址）：
+
+```bash
+cd esign-feature-coach
+git remote add origin https://github.com/你的用户名/esign-feature-coach.git
+git branch -M main
+git push -u origin main
+```
+
+### 第二步：Render 一键部署
+
+1. 打开 https://render.com → 注册/登录（可用 GitHub 账号直接登录）
+2. 右上角 **New** → **Blueprint**
+3. 连接 GitHub，选择 `esign-feature-coach` 仓库
+4. Render 自动读取 `render.yaml`，确认配置后点 **Apply**
+5. 等待构建（约 1-2 分钟），完成后获得固定地址如 `https://esign-feature-coach.onrender.com`
+
+### 第三步：数据持久化（重要）
+
+- **免费版**：数据库存在临时磁盘，每次重新部署/重启会重置（需重新导入 Excel 功能清单）。适合先用起来。
+- **数据持久（推荐）**：在 Render 控制台把套餐升级到 **Starter（$7/月）**，并在服务设置里确认已挂载持久磁盘 `/data`（render.yaml 已配好）。升级后数据库在重启/部署后依然保留。
+- 部署后首次访问会初始化示例数据（6 SFR + 4 商务 + 20 示例功能）。进入「用户管理」改成真实姓名，再用「功能清单 → 导入」上传你的真实功能清单（Excel：编号/名称/分类）。
+
+### 环境变量说明
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | 10000 | Render 自动注入，无需修改 |
+| `FLASK_DEBUG` | 0 | 生产环境保持 0 |
+| `DATA_DIR` | /data | 数据库存放目录，挂载持久盘后持久化 |
+
+> 部署后如果本地还想继续开发，本地运行仍用 `python app.py`（默认 5055 端口，数据存在本地 coach.db）。
