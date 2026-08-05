@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}批量分享文案{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-megaphone text-success"></i> 群分享文案合集 <small class="text-muted">共 {{features|length}} 个功能</small></h3>
+  <a href="{{url_for('features_page')}}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回清单</a>
+</div>
+
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-text"></i> 可直接复制到群（已自动标记为已分享）</span>
+        <button class="btn btn-sm btn-brand" onclick="copyText()"><i class="bi bi-clipboard"></i> 一键复制全部</button>
+      </div>
+      <div class="card-body">
+        <textarea id="shareText" class="form-control scenario-text" rows="{{features|length * 14 + 4}}" readonly style="font-size:14px;line-height:1.8">📌 【功能价值分享合集】（共 {{features|length}} 个）
+
+{% for f in features %}━━━━━━━━━━━━━━━━━━
+🔹 {{loop.index}}. {{f.name}}{% if f.code %}（编号：{{f.code}}）{% endif %}
+{% if f.category %}分类：{{f.category}}{% endif %}
+
+📍 使用场景
+{{f.scenario or '（待填写）'}}
+
+💎 核心价值
+{{f.value_point or '（待填写）'}}
+
+分享人：{{f.owner_name or '-'}}
+{% endfor %}━━━━━━━━━━━━━━━━━━
+
+请各位商务同学学习，后续会有抢答考核哦~ 💪</textarea>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-info-circle"></i> 使用说明</div>
+      <div class="card-body small">
+        <p>1. 勾选多个功能 → 批量生成此合集</p>
+        <p>2. 点击「一键复制全部」</p>
+        <p>3. 粘贴到 SFR+商务 群里</p>
+        <p>4. 提醒商务在「学习中心」标记已学习</p>
+        <hr>
+        <p class="text-muted mb-0">本次已包含：</p>
+        <ul class="mb-0 mt-1">
+          {% for f in features %}<li>{{f.name}}</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function copyText(){
+  var t=document.getElementById('shareText');
+  t.select();t.setSelectionRange(0,99999);
+  try{navigator.clipboard.writeText(t.value).then(function(){alert('已复制！可粘贴到群里')})}catch(e){
+    document.execCommand('copy');alert('已复制！可粘贴到群里');
+  }
+}
+</script>
+{% endblock %}

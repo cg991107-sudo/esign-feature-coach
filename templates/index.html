@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}仪表盘{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-speedometer2 text-primary"></i> 仪表盘</h3>
+  {% if not u %}<span class="text-muted">请先在「用户管理」选择当前用户</span>{% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3">
+      <div class="stat-num text-primary">{{s.total}}</div>
+      <div class="stat-label">功能总数</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3" style="border-left-color:#d97706">
+      <div class="stat-num" style="color:#d97706">{{s.filled}} / {{s.total}}</div>
+      <div class="stat-label">已填写 ({{s.fill_rate}}%)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3" style="border-left-color:#16a34a">
+      <div class="stat-num" style="color:#16a34a">{{s.shared}} / {{s.total}}</div>
+      <div class="stat-label">已分享 ({{s.share_rate}}%)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3" style="border-left-color:#7c3aed">
+      <div class="stat-num" style="color:#7c3aed">{{s.active_quiz}}</div>
+      <div class="stat-label">进行中考题</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    {% if u and u.role == 'sfr' %}
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-person-badge"></i> 我的填写进度</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-around text-center mb-3">
+          <div><div class="stat-num text-secondary">{{my_pending}}</div><div class="stat-label">待填写</div></div>
+          <div><div class="stat-num" style="color:#d97706">{{my_filled}}</div><div class="stat-label">已填写</div></div>
+          <div><div class="stat-num" style="color:#16a34a">{{my_shared}}</div><div class="stat-label">已分享</div></div>
+        </div>
+        <a href="{{url_for('features_page')}}" class="btn btn-brand w-100"><i class="bi bi-pencil-square"></i> 去功能清单</a>
+      </div>
+    </div>
+    {% endif %}
+    {% if u and u.role == 'business' %}
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-mortarboard"></i> 我的学习进度</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-around text-center mb-3">
+          <div><div class="stat-num" style="color:#16a34a">{{my_learned}}</div><div class="stat-label">已学习</div></div>
+          <div><div class="stat-num text-secondary">{{s.shared - my_learned}}</div><div class="stat-label">待学习</div></div>
+        </div>
+        {% if s.shared > 0 %}
+        <div class="progress mb-3"><div class="progress-bar" style="width:{{(my_learned/s.shared*100)|round(1)}}%"></div></div>
+        {% endif %}
+        <a href="{{url_for('learn_page')}}" class="btn btn-brand w-100"><i class="bi bi-book"></i> 去学习</a>
+        <a href="{{url_for('quiz_page')}}" class="btn btn-outline-primary w-100 mt-2"><i class="bi bi-patch-question"></i> 去抢答</a>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-header"><i class="bi bi-diagram-3"></i> 团队概况</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">SFR 售前</span><span class="fw-bold">{{s.sfrs}} 人</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted">商务</span><span class="fw-bold">{{s.business}} 人</span></div>
+        <div class="d-flex justify-content-between"><span class="text-muted">累计学习记录</span><span class="fw-bold">{{s.learned_total}} 条</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-trophy"></i> 商务积分 TOP 5</span>
+        <a href="{{url_for('ranking_page')}}" class="btn btn-sm btn-outline-primary">完整排行</a>
+      </div>
+      <div class="card-body">
+        {% if ranking %}
+        <table class="table table-borderless">
+          <thead><tr><th style="width:60px">排名</th><th>商务</th><th class="text-end">积分</th></tr></thead>
+          <tbody>
+            {% for r in ranking %}
+            <tr>
+              <td>
+                {% if loop.index==1 %}<span class="rank-1"><i class="bi bi-trophy-fill"></i> 1</span>
+                {% elif loop.index==2 %}<span class="rank-2">2</span>
+                {% elif loop.index==3 %}<span class="rank-3">3</span>
+                {% else %}{{loop.index}}{% endif %}
+              </td>
+              <td class="fw-semibold">{{r.name}}</td>
+              <td class="text-end"><span class="badge bg-primary fs-6">{{r.score}} 分</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-emoji-neutral"></i><p>暂无积分数据，去抢答考核看看吧</p></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header"><i class="bi bi-info-circle"></i> 使用流程</div>
+  <div class="card-body">
+    <div class="row text-center">
+      <div class="col-md-3 mb-3"><div class="p-3"><i class="bi bi-upload text-primary fs-2"></i><h6 class="mt-2">1. 导入功能清单</h6><small class="text-muted">Excel或手动添加100+功能</small></div></div>
+      <div class="col-md-3 mb-3"><div class="p-3"><i class="bi bi-pencil-square text-warning fs-2"></i><h6 class="mt-2">2. 认领并填写场景价值</h6><small class="text-muted">在功能清单认领，填完自动归属</small></div></div>
+      <div class="col-md-3 mb-3"><div class="p-3"><i class="bi bi-megaphone text-success fs-2"></i><h6 class="mt-2">3. 分享→群同步</h6><small class="text-muted">单条或批量生成分享文案发群</small></div></div>
+      <div class="col-md-3 mb-3"><div class="p-3"><i class="bi bi-patch-question text-info fs-2"></i><h6 class="mt-2">4. 抢答考核积分</h6><small class="text-muted">SFR出题，商务抢答</small></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

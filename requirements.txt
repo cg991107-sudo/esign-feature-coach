@@ -1,0 +1,4 @@
+# e签宝功能价值教练工具依赖
+Flask>=3.0
+openpyxl>=3.1
+gunicorn>=21.2

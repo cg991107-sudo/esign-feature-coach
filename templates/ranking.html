@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}排行榜{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-bar-chart-fill text-primary"></i> 排行榜</h3>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-trophy"></i> 商务积分榜</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th style="width:50px">排名</th><th>商务</th><th class="text-center">答对</th><th class="text-center">答错</th><th class="text-center">待判</th><th class="text-end">积分</th></tr></thead>
+          <tbody>
+            {% for s in scores %}
+            <tr {% if loop.index<=3 %}class="fw-bold"{% endif %}>
+              <td>
+                {% if loop.index==1 %}<span class="rank-1"><i class="bi bi-trophy-fill"></i> 1</span>
+                {% elif loop.index==2 %}<span class="rank-2">2</span>
+                {% elif loop.index==3 %}<span class="rank-3">3</span>
+                {% else %}{{loop.index}}{% endif %}
+              </td>
+              <td>{{s.name}}</td>
+              <td class="text-center"><span class="badge bg-success">{{s.correct or 0}}</span></td>
+              <td class="text-center"><span class="badge bg-danger">{{s.wrong or 0}}</span></td>
+              <td class="text-center"><span class="badge bg-warning text-dark">{{s.pending or 0}}</span></td>
+              <td class="text-end"><span class="badge bg-primary fs-6">{{s.correct or 0}} 分</span></td>
+            </tr>
+            {% endfor %}
+            {% if not scores %}
+            <tr><td colspan="6"><div class="empty-state"><i class="bi bi-trophy"></i><p>暂无积分数据</p></div></td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-book-check"></i> 学习榜</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th style="width:50px">排名</th><th>商务</th><th class="text-end">已学</th><th class="text-end">进度</th></tr></thead>
+          <tbody>
+            {% for l in learning %}
+            <tr>
+              <td>{{loop.index}}</td>
+              <td>{{l.name}}</td>
+              <td class="text-end">{{l.learned or 0}}</td>
+              <td class="text-end">
+                {% if total_shared > 0 %}
+                <div class="progress" style="width:80px;display:inline-block"><div class="progress-bar bg-success" style="width:{{((l.learned or 0)/total_shared*100)|round(0)}}%"></div></div>
+                <small>{{((l.learned or 0)/total_shared*100)|round(0)}}%</small>
+                {% else %}-{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><i class="bi bi-info-circle"></i> 积分规则</div>
+      <div class="card-body small">
+        <ul class="mb-0">
+          <li>SFR 在「抢答考核」发布考题</li>
+          <li>商务抢答，每题限答一次</li>
+          <li>SFR 判定回答正确 → <strong class="text-success">+1分</strong></li>
+          <li>回答错误不扣分</li>
+          <li>积分实时更新，排行榜自动排序</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

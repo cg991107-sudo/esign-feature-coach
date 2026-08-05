@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}抢答考核{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-patch-question text-primary"></i> 抢答考核</h3>
+  {% if u and u.role in ('sfr','admin') %}
+  <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
+  {% endif %}
+</div>
+
+{% if u and u.role == 'business' %}
+<div class="alert alert-info"><i class="bi bi-megaphone"></i> 商务同学看这里：点击考题下方的「我要抢答」提交你的回答，SFR判定正确后自动+1分。每题只能答一次，想好了再提交！</div>
+{% endif %}
+
+{% for q in quizzes %}
+<div class="card mb-3 {% if q.status=='active' %}border-primary{% endif %}">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div>
+        <span class="badge {% if q.status=='active' %}bg-primary{% else %}bg-secondary{% endif %}">
+          {% if q.status=='active' %}进行中{% else %}已关闭{% endif %}
+        </span>
+        {% if q.feature_name %}<span class="badge bg-light text-dark border ms-1">{{q.feature_name}}</span>{% endif %}
+        <span class="badge bg-light text-dark border ms-1">出题人：{{q.sfr_name}}</span>
+        <small class="text-muted ms-2">{{q.created_at}}</small>
+      </div>
+      <div class="text-end">
+        <span class="badge bg-success">{{q.correct_count or 0}} 答对</span>
+        <span class="badge bg-secondary">{{q.ans_count or 0}} 回答</span>
+      </div>
+    </div>
+    <h6 class="fw-bold mt-2"><i class="bi bi-question-circle"></i> {{q.question}}</h6>
+    {% if u and u.role in ('sfr','admin') and q.answer_hint %}
+    <p class="small text-muted mb-2"><i class="bi bi-lightbulb"></i> 参考答案：{{q.answer_hint}}</p>
+    {% endif %}
+
+    {% if u and u.role == 'business' %}
+      {% if q.id in my_answers %}
+        {% set st = my_answers[q.id] %}
+        <div class="mt-2">
+          {% if st == 1 %}<span class="badge bg-success"><i class="bi bi-check-circle"></i> 已答对 +1分</span>
+          {% elif st == 0 %}<span class="badge bg-danger"><i class="bi bi-x-circle"></i> 回答不正确</span>
+          {% else %}<span class="badge bg-warning text-dark"><i class="bi bi-hourglass"></i> 待判定</span>{% endif %}
+        </div>
+      {% elif q.status == 'active' %}
+        <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}" class="mt-2">
+          <div class="input-group">
+            <input type="text" name="content" class="form-control" placeholder="输入你的回答..." required>
+            <button class="btn btn-success"><i class="bi bi-lightning-fill"></i> 我要抢答</button>
+          </div>
+        </form>
+      {% endif %}
+    {% endif %}
+
+    <div class="mt-2">
+      <a href="{{url_for('quiz_detail',qid=q.id)}}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-list-ul"></i> 查看全部回答
+        {% if u and u.role in ('sfr','admin') and q.ans_count %}
+          {% set pending = q.ans_count - (q.correct_count or 0) %}
+        {% endif %}
+      </a>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% if not quizzes %}
+<div class="card"><div class="empty-state"><i class="bi bi-patch-question"></i><p>暂无考题{% if u and u.role in ('sfr','admin') %}，点击右上角「发布考题」开始{% endif %}</p></div></div>
+{% endif %}
+{% endblock %}

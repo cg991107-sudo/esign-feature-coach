@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}功能详情{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0">
+    <a href="{{url_for('features_page')}}" class="text-decoration-none text-muted"><i class="bi bi-arrow-left"></i></a>
+    {{f.name}}
+    {% if f.code %}<code class="fs-6 text-muted">{{f.code}}</code>{% endif %}
+  </h3>
+  {% if u and u.role in ('sfr','admin') %}
+    {% if not f.owner_sfr_id or (u.role=='admin') or (u.role=='sfr' and f.owner_sfr_id != u.id) %}
+    <form method="post" action="{{url_for('claim_feature',fid=f.id)}}" style="display:inline">
+      <button class="btn btn-outline-warning"><i class="bi bi-hand-index-thumb"></i> 认领此功能</button>
+    </form>
+    {% endif %}
+    <a href="{{url_for('fill_form',fid=f.id)}}" class="btn btn-brand"><i class="bi bi-pencil-square"></i> 填写/编辑</a>
+    {% if f.status=='filled' %}
+    <form method="post" action="{{url_for('share_feature',fid=f.id)}}" style="display:inline">
+      <button class="btn btn-success"><i class="bi bi-megaphone"></i> 标记分享并生成文案</button>
+    </form>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-tags"></i> 基本信息</div>
+      <div class="card-body">
+        <div class="row mb-2">
+          <div class="col-sm-3 text-muted">分类</div>
+          <div class="col-sm-9">{% if f.category %}<span class="badge bg-light text-dark border">{{f.category}}</span>{% else %}-{% endif %}</div>
+        </div>
+        <div class="row mb-2">
+          <div class="col-sm-3 text-muted">负责人</div>
+          <div class="col-sm-9">{{f.owner_name or '未分配'}}</div>
+        </div>
+        <div class="row">
+          <div class="col-sm-3 text-muted">状态</div>
+          <div class="col-sm-9">
+            {% if f.status=='pending' %}<span class="badge-status st-pending">待填写</span>
+            {% elif f.status=='filled' %}<span class="badge-status st-filled">已填写</span>
+            {% else %}<span class="badge-status st-shared">已分享</span>{% endif %}
+            {% if f.filled_date %}<small class="text-muted ms-2">填写于 {{f.filled_date}}</small>{% endif %}
+            {% if f.shared_date %}<small class="text-muted ms-2">分享于 {{f.shared_date}}</small>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-chat-square-text"></i> 使用场景</div>
+      <div class="card-body">
+        {% if f.scenario %}<p class="scenario-text mb-0">{{f.scenario}}</p>
+        {% else %}<div class="empty-state py-4"><i class="bi bi-pencil"></i><p>尚未填写</p></div>{% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-gem"></i> 价值点</div>
+      <div class="card-body">
+        {% if f.value_point %}<p class="scenario-text mb-0">{{f.value_point}}</p>
+        {% else %}<div class="empty-state py-4"><i class="bi bi-pencil"></i><p>尚未填写</p></div>{% endif %}
+      </div>
+    </div>
+
+    {% if f.status=='shared' %}
+    <a href="{{url_for('share_text',fid=f.id)}}" class="btn btn-success w-100"><i class="bi bi-megaphone"></i> 生成群分享文案</a>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-people-check"></i> 学习记录 ({{learned|length}})</div>
+      <div class="card-body">
+        {% if learned %}
+        <ul class="list-group list-group-flush">
+          {% for l in learned %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            {{l.name}} <small class="text-muted">{{l.learned_at}}</small>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-book"></i><p>暂无学习记录</p></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}填写功能{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0">
+    <a href="{{url_for('features_page')}}" class="text-decoration-none text-muted"><i class="bi bi-arrow-left"></i></a>
+    填写功能价值
+  </h3>
+</div>
+
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-info-circle"></i> 功能信息</div>
+      <div class="card-body">
+        <h5 class="fw-bold">{{f.name}} {% if f.code %}<code class="text-muted">{{f.code}}</code>{% endif %}</h5>
+        {% if f.category %}<span class="badge bg-light text-dark border">{{f.category}}</span>{% endif %}
+      </div>
+    </div>
+
+    <form method="post" class="mt-3">
+      <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-chat-square-text"></i> 使用场景 <span class="text-danger">*</span></div>
+        <div class="card-body">
+          <textarea name="scenario" class="form-control" rows="6" placeholder="描述客户在什么业务场景下会用到这个功能&#10;&#10;例如：大型集团企业跨地区签署采购合同，涉及多地分公司盖章、多级审批，传统纸质签署流程耗时长达数天。使用电子签名后可实现分钟级跨地域签署。" required>{{f.scenario or ''}}</textarea>
+          <small class="text-muted">建议写清楚：什么类型客户、什么业务场景、解决了什么痛点</small>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-gem"></i> 价值点 <span class="text-danger">*</span></div>
+        <div class="card-body">
+          <textarea name="value_point" class="form-control" rows="6" placeholder="这个功能给客户带来的核心价值&#10;&#10;例如：&#10;1. 签署效率提升90%，从3天缩短至10分钟&#10;2. 降低快递和用纸成本，单合同节省15元&#10;3. 全流程存证，司法采信有保障&#10;4. 支持多地协同，不受地域限制" required>{{f.value_point or ''}}</textarea>
+          <small class="text-muted">建议从效率、成本、合规、协同等维度提炼，最好有量化数据</small>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-brand flex-grow-1"><i class="bi bi-check-lg"></i> 保存（填写完成后自动标记为已填写）</button>
+        <a href="{{url_for('features_page')}}" class="btn btn-outline-secondary">取消</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-lightbulb"></i> 填写指南</div>
+      <div class="card-body small">
+        <p class="fw-bold text-primary">使用场景三要素</p>
+        <ul>
+          <li><strong>谁</strong>：什么行业/规模的客户</li>
+          <li><strong>什么场景</strong>：具体业务流程</li>
+          <li><strong>什么痛点</strong>：传统方式的问题</li>
+        </ul>
+        <hr>
+        <p class="fw-bold text-primary">价值点四维度</p>
+        <ul>
+          <li><strong>提效</strong>：节省多少时间</li>
+          <li><strong>降本</strong>：省了多少钱</li>
+          <li><strong>合规</strong>：法律/审计保障</li>
+          <li><strong>体验</strong>：用户体验提升</li>
+        </ul>
+        <hr>
+        <p class="text-muted mb-0">填写完成后负责人自动变为您。回到功能清单点「分享」即可标记并生成群分享文案；也可勾选多个功能批量生成分享合集。</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

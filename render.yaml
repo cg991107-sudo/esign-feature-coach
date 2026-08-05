@@ -1,0 +1,22 @@
+# Render 部署配置 (Blueprint)
+# 用法：在 Render 控制台 New → Blueprint → 连接本仓库，自动按此配置创建服务
+services:
+  - type: web
+    name: esign-feature-coach
+    runtime: python
+    region: singapore          # 亚太节点，国内访问延迟更低
+    plan: free                 # 免费版即可运行；如需数据持久化请升级 Starter 并在控制台挂载磁盘
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    envVars:
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: DATA_DIR
+        value: /data          # 配合下方持久磁盘；免费版无磁盘时 app 自动回退到项目目录
+    # 持久磁盘：Starter 及以上套餐生效。挂载后数据库在重启/部署后依然保留。
+    # 免费版会忽略此块，数据库保存在临时磁盘（重启/重新部署会重置，需重新导入 Excel）。
+    disk:
+      name: coachdata
+      mountPath: /data
+      sizeGB: 1

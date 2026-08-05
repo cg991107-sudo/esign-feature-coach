@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}发布考题{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-plus-circle text-primary"></i> 发布考题</h3>
+  <a href="{{url_for('quiz_page')}}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回</a>
+</div>
+
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label fw-bold">关联功能（可选）</label>
+            <select name="feature_id" class="form-select">
+              <option value="">不关联具体功能</option>
+              {% for f in features %}
+              <option value="{{f.id}}">{{f.name}} {% if f.code %}({{f.code}}){% endif %}</option>
+              {% endfor %}
+            </select>
+            <small class="text-muted">选择考题对应的功能，方便商务回顾</small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">考题 <span class="text-danger">*</span></label>
+            <textarea name="question" class="form-control" rows="3" placeholder="例如：电子签名功能在什么场景下能帮助客户将签署效率提升90%？" required></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">参考答案 / 判定关键词</label>
+            <textarea name="answer_hint" class="form-control" rows="3" placeholder="用于你判定回答是否正确，商务不可见。例如：需提到「跨地域签署」「分钟级」「审批流程」等关键词"></textarea>
+            <small class="text-muted">仅SFR可见，用于判分参考</small>
+          </div>
+          <button class="btn btn-brand w-100"><i class="bi bi-send"></i> 发布考题</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-lightbulb"></i> 出题技巧</div>
+      <div class="card-body small">
+        <p class="fw-bold text-primary">好考题的特点</p>
+        <ul>
+          <li><strong>场景导向</strong>：问"什么场景下用"而非"功能叫什么"</li>
+          <li><strong>价值导向</strong>：问"解决了什么问题"</li>
+          <li><strong>开放但有锚点</strong>：允许多种回答，但有关键得分点</li>
+        </ul>
+        <hr>
+        <p class="fw-bold text-primary">判分建议</p>
+        <ul>
+          <li>答到核心关键词即算对</li>
+          <li>鼓励商务用自己的话表达</li>
+          <li>答对+1分，答错不扣分</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
