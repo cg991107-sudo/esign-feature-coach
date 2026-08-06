@@ -70,9 +70,12 @@ def _llm_chat(system, user, max_tokens=600):
                 except Exception:
                     pass
                 msg = f"AI 调用失败 HTTP {e.code}: {body}"
-                print(f"[ai_helper] {msg}", file=sys.stderr, flush=True)
+                print(f"[ai_helper] attempt={attempt} {msg}", file=sys.stderr, flush=True)
                 _LAST_AI_STATUS = {"ok": False, "msg": msg}
-                return None  # 不再重试，避免给中转站造成压力
+                # 401/403 是凭证问题，不重试；其它错误（如 JSON 模式 400）重试一次去掉 response_format
+                if e.code in (401, 403) or attempt == 1:
+                    return None
+                continue
             except Exception as e:
                 msg = f"AI 调用异常: {type(e).__name__}: {e}"
                 print(f"[ai_helper] attempt={attempt} {msg}", file=sys.stderr, flush=True)
@@ -139,17 +142,24 @@ def ai_generate_scenario_value(feature_name, category="", code=""):
         '"value_point":"3-4条核心价值，每条一行，带量化数据"}\n'
         "只输出 JSON。"
     )
-    raw = _llm_chat(system, user, max_tokens=500)
+    raw = _llm_chat(system, user, max_tokens=800)
     if raw:
+        # 去掉可能包裹的 markdown 代码块
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[cleaned.find("\n") + 1:]
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3].strip()
         try:
-            d = json.loads(raw)
+            d = json.loads(cleaned)
             s = d.get("scenario", "").strip()
             v = d.get("value_point", "").strip()
             if s or v:
                 return {"scenario": s, "value_point": v}
-        except Exception:
-            pass
-    return {"scenario": "", "value_point": ""}
+            return {"scenario": "", "value_point": "", "error": f"AI 返回为空字段，raw: {raw[:300]}"}
+        except Exception as e:
+            return {"scenario": "", "value_point": "", "error": f"JSON 解析失败: {e}; raw: {raw[:300]}"}
+    return {"scenario": "", "value_point": "", "error": get_ai_status().get("msg", "AI 无返回")}
 
 
 def ai_generate_quiz(feature_name, scenario, value_point):

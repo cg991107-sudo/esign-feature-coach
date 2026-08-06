@@ -693,10 +693,14 @@ def api_ai_gen_scenario(fid):
             return jsonify({"ok": False, "msg": "功能不存在"})
         from ai_helper import ai_generate_scenario_value
         result = ai_generate_scenario_value(f["name"], f["category"] or "", f["code"] or "")
-        if result["scenario"] or result["value_point"]:
+        if result.get("scenario") or result.get("value_point"):
             return jsonify({"ok": True, "data": result})
         else:
-            return jsonify({"ok": False, "msg": "AI 生成失败，请检查 AI 配置或手动填写"})
+            return jsonify({
+                "ok": False,
+                "msg": "AI 生成失败，请检查 AI 配置或手动填写",
+                "detail": result.get("error", "未知原因")
+            })
     except BaseException as e:
         return jsonify({"ok": False, "msg": f"生成异常: {type(e).__name__}: {e}"}), 200
 

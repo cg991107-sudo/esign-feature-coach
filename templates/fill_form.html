@@ -113,7 +113,7 @@ function aiGenerateScenario() {
         }, 3000);
         alert('AI 生成完成！请检查并修改内容后保存。');
       } else {
-        alert('AI 生成失败：' + (data.msg || '未知错误') + '\n请手动填写或检查 AI 配置。');
+        alert('AI 生成失败：' + (data.msg || '未知错误') + '\n' + (data.detail || '') + '\n请手动填写或检查 AI 配置。');
       }
     })
     .catch(function(err) {
