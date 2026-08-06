@@ -2,7 +2,7 @@
 {% block title %}用户管理{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h3 class="fw-bold mb-0"><i class="bi bi-people text-primary"></i> 用户管理</h3>
+  <h3 class="fw-bold mb-0"><i class="bi bi-shield-lock text-primary"></i> 用户管理 <span class="badge bg-secondary">仅管理员</span></h3>
 </div>
 
 <div class="row g-4">
@@ -19,7 +19,7 @@
             <label class="form-label">角色</label>
             <select name="role" class="form-select">
               <option value="sfr">SFR（售前）</option>
-              <option value="business">商务</option>
+              <option value="business">商务（AR）</option>
               <option value="admin">管理员</option>
             </select>
           </div>
@@ -29,15 +29,15 @@
     </div>
     <div class="card mt-3">
       <div class="card-body small text-muted">
-        <p class="mb-1"><i class="bi bi-lightbulb text-warning"></i> <strong>使用提示</strong></p>
-        <p class="mb-0">本工具为轻量内部应用，不做密码登录。点击「切换」即可模拟该用户身份操作。建议在早会/群内约定好各自的身份。</p>
+        <p class="mb-1"><i class="bi bi-lightbulb text-warning"></i> <strong>身份管理说明</strong></p>
+        <p class="mb-0">普通成员首次打开系统会自助注册（SFR / 商务AR）。若有人选错身份，由管理员在此页面的「修改身份」下拉框纠正。用户管理页仅管理员可见。</p>
       </div>
     </div>
   </div>
 
   <div class="col-lg-8">
     <div class="card">
-      <div class="card-header"><i class="bi bi-list"></i> 用户列表（点击「切换」选择当前身份）</div>
+      <div class="card-header"><i class="bi bi-list"></i> 用户列表</div>
       <div class="table-responsive">
         <table class="table">
           <thead><tr><th>姓名</th><th>角色</th><th>创建时间</th><th class="text-end">操作</th></tr></thead>
@@ -47,17 +47,22 @@
               <td class="fw-semibold">{{usr.name}}{% if u and u.id==usr.id %} <i class="bi bi-check-circle-fill text-primary"></i>{% endif %}</td>
               <td>
                 {% if usr.role=='sfr' %}<span class="badge bg-primary">SFR</span>
-                {% elif usr.role=='business' %}<span class="badge bg-success">商务</span>
+                {% elif usr.role=='business' %}<span class="badge bg-success">商务AR</span>
                 {% else %}<span class="badge bg-dark">管理员</span>{% endif %}
               </td>
               <td><small class="text-muted">{{usr.created_at}}</small></td>
               <td class="text-end">
-                {% if not u or u.id!=usr.id %}
-                <a href="{{url_for('switch_user',uid=usr.id)}}" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-in-right"></i> 切换</a>
-                {% else %}
-                <span class="badge bg-primary">当前</span>
-                {% endif %}
-                <a href="{{url_for('delete_user',uid=usr.id)}}" class="btn btn-sm btn-outline-danger" onclick="return confirm('确认删除？')"><i class="bi bi-trash"></i></a>
+                <form method="post" action="{{url_for('change_role',uid=usr.id)}}" class="d-inline-block me-1">
+                  <div class="input-group input-group-sm" style="width:auto">
+                    <select name="role" class="form-select form-select-sm">
+                      <option value="sfr" {% if usr.role=='sfr' %}selected{% endif %}>SFR</option>
+                      <option value="business" {% if usr.role=='business' %}selected{% endif %}>商务AR</option>
+                      <option value="admin" {% if usr.role=='admin' %}selected{% endif %}>管理员</option>
+                    </select>
+                    <button class="btn btn-outline-secondary btn-sm" title="修改身份">改</button>
+                  </div>
+                </form>
+                <a href="{{url_for('delete_user',uid=usr.id)}}" class="btn btn-sm btn-outline-danger" onclick="return confirm('确认删除该用户及其全部关联数据？')"><i class="bi bi-trash"></i></a>
               </td>
             </tr>
             {% endfor %}

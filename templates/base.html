@@ -72,17 +72,19 @@
           <li class="nav-item"><a class="nav-link px-3" href="{{url_for('learn_page')}}"><i class="bi bi-book"></i> 学习中心</a></li>
           <li class="nav-item"><a class="nav-link px-3" href="{{url_for('quiz_page')}}"><i class="bi bi-patch-question"></i> 抢答考核</a></li>
           <li class="nav-item"><a class="nav-link px-3" href="{{url_for('ranking_page')}}"><i class="bi bi-bar-chart-fill"></i> 排行榜</a></li>
-          <li class="nav-item"><a class="nav-link px-3" href="{{url_for('users_page')}}"><i class="bi bi-people"></i> 用户管理</a></li>
+          {% if u and u.role=='admin' %}
+          <li class="nav-item"><a class="nav-link px-3" href="{{url_for('users_page')}}"><i class="bi bi-shield-lock"></i> 用户管理</a></li>
+          {% endif %}
         </ul>
         {% if u %}
         <div class="d-flex align-items-center gap-3">
           <span class="user-badge"><i class="bi bi-person-circle"></i> {{u.name}}
-            {% if u.role=='sfr' %}· SFR{% elif u.role=='business' %}· 商务{% else %}· 管理员{% endif %}
+            {% if u.role=='sfr' %}· SFR{% elif u.role=='business' %}· 商务AR{% else %}· 管理员{% endif %}
           </span>
-          <a href="{{url_for('users_page')}}" class="btn btn-sm btn-outline-light">切换</a>
+          <a href="{{url_for('logout')}}" class="btn btn-sm btn-outline-light">退出</a>
         </div>
         {% else %}
-        <a href="{{url_for('users_page')}}" class="btn btn-sm btn-outline-light">选择用户</a>
+        <a href="{{url_for('login_page')}}" class="btn btn-sm btn-outline-light">登录</a>
         {% endif %}
       </div>
     </div>

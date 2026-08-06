@@ -168,8 +168,7 @@ def require_login(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get("uid"):
-            flash("请先选择当前用户", "warning")
-            return redirect(url_for("users_page"))
+            return redirect(url_for("login_page"))
         return fn(*args, **kwargs)
     return wrapper
 
@@ -203,9 +202,66 @@ def stats():
                 share_rate=round(shared / total * 100, 1) if total else 0)
 
 
+# ---------- 路由：登录 / 注册 / 退出 ----------
+
+@app.route("/login")
+def login_page():
+    """登录页：列出已注册用户，点击即以此身份进入；新用户点下方去注册。"""
+    if session.get("uid"):
+        return redirect(url_for("index"))
+    db = get_db()
+    users = db.execute("SELECT * FROM users ORDER BY role, name").fetchall()
+    return render_template("login.html", users=users)
+
+
+@app.route("/users/<int:uid>/switch")
+def switch_user(uid):
+    """登录页点击某用户即以此身份进入（轻量内部工具，按名识别身份）。"""
+    session["uid"] = uid
+    db = get_db()
+    u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if u:
+        flash(f"已登录：{u['name']}", "info")
+    return redirect(url_for("index"))
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register_page():
+    """首次使用：自助注册，填写姓名 + 身份（SFR / 商务AR）。"""
+    if session.get("uid"):
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        role = request.form.get("role", "business")
+        if not name:
+            flash("请输入姓名", "danger")
+            return redirect(url_for("register_page"))
+        if role not in ("sfr", "business"):
+            role = "business"
+        db = get_db()
+        try:
+            cur = db.execute("INSERT INTO users(name,role) VALUES(?,?)", (name, role))
+            db.commit()
+            uid = cur.lastrowid
+            session["uid"] = uid
+            flash(f"注册成功，欢迎 {name}！如身份选错，可联系管理员修改。", "success")
+            return redirect(url_for("index"))
+        except sqlite3.IntegrityError:
+            flash("该姓名已注册，请直接登录或换一个姓名", "danger")
+            return redirect(url_for("register_page"))
+    return render_template("register.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
 # ---------- 路由：仪表盘 ----------
 
 @app.route("/")
+@require_login
 def index():
     u = current_user()
     s = stats()
@@ -236,9 +292,10 @@ def index():
                            my_learned=my_learned, ranking=ranking)
 
 
-# ---------- 路由：用户管理 ----------
+# ---------- 路由：用户管理（仅管理员） ----------
 
 @app.route("/users")
+@require_role("admin")
 def users_page():
     db = get_db()
     users = db.execute("SELECT * FROM users ORDER BY role, name").fetchall()
@@ -246,12 +303,15 @@ def users_page():
 
 
 @app.route("/users/add", methods=["POST"])
+@require_role("admin")
 def add_user():
     name = request.form.get("name", "").strip()
     role = request.form.get("role", "business")
     if not name:
         flash("请输入姓名", "danger")
         return redirect(url_for("users_page"))
+    if role not in ("sfr", "business", "admin"):
+        role = "business"
     db = get_db()
     try:
         db.execute("INSERT INTO users(name,role) VALUES(?,?)", (name, role))
@@ -262,19 +322,33 @@ def add_user():
     return redirect(url_for("users_page"))
 
 
-@app.route("/users/<int:uid>/switch")
-def switch_user(uid):
-    session["uid"] = uid
+@app.route("/users/<int:uid>/role", methods=["POST"])
+@require_role("admin")
+def change_role(uid):
+    """管理员修改用户身份（SFR/商务AR/管理员）。用户自己选错身份时由管理员在此纠正。"""
+    new_role = request.form.get("role", "").strip()
+    if new_role not in ("sfr", "business", "admin"):
+        flash("非法身份", "danger")
+        return redirect(url_for("users_page"))
     db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
-    if u:
-        flash(f"已切换为：{u['name']}", "info")
-    return redirect(url_for("index"))
+    target = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not target:
+        flash("用户不存在", "danger")
+        return redirect(url_for("users_page"))
+    db.execute("UPDATE users SET role=? WHERE id=?", (new_role, uid))
+    db.commit()
+    flash(f"已将 {target['name']} 的身份修改为 {('SFR' if new_role=='sfr' else '商务AR' if new_role=='business' else '管理员')}", "success")
+    return redirect(url_for("users_page"))
 
 
 @app.route("/users/<int:uid>/delete")
+@require_role("admin")
 def delete_user(uid):
     db = get_db()
+    # 防止管理员删掉自己导致无人可管理
+    if uid == session.get("uid"):
+        flash("不能删除当前登录的管理员账号", "danger")
+        return redirect(url_for("users_page"))
     # 先清理所有关联数据，避免外键约束报错
     db.execute("DELETE FROM answers WHERE user_id=?", (uid,))
     db.execute("DELETE FROM answers WHERE quiz_id IN (SELECT id FROM quizzes WHERE sfr_id=?)", (uid,))
@@ -290,6 +364,7 @@ def delete_user(uid):
 # ---------- 路由：功能清单 ----------
 
 @app.route("/features")
+@require_login
 def features_page():
     db = get_db()
     u = current_user()
@@ -734,6 +809,7 @@ def quiz_answer(qid):
 
 
 @app.route("/quiz/<int:qid>")
+@require_login
 def quiz_detail(qid):
     db = get_db()
     u = current_user()
@@ -805,6 +881,7 @@ def quiz_close(qid):
 # ---------- 路由：排行榜 ----------
 
 @app.route("/ranking")
+@require_login
 def ranking_page():
     db = get_db()
     # 积分榜
