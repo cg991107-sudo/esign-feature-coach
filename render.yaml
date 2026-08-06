@@ -21,9 +21,6 @@ services:
         value: https://api.openai.com/v1   # 可用国内兼容端点（DeepSeek / 硅基流动 / 阿里云百炼等）替换
       - key: OPENAI_MODEL
         value: gpt-4o-mini  # 按所用端点支持的模型填写（如 deepseek-chat）
-    # 持久磁盘：Starter 及以上套餐生效。挂载后数据库在重启/部署后依然保留。
-    # 免费版会忽略此块，数据库保存在临时磁盘（重启/重新部署会重置，需重新导入 Excel）。
-    disk:
-      name: coachdata
-      mountPath: /data
-      sizeGB: 1
+    # 持久磁盘：升级到 Starter($7/月) 套餐后，在 Render 控制台 Service → Disks → Add Disk
+    # name: coachdata / mountPath: /data / sizeGB: 1，即可持续保存数据库
+    # 免费版每次重新部署会重置数据库（需重新导入 Excel）；临时使用够用。
