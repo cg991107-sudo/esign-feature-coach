@@ -26,79 +26,95 @@ def get_ai_status():
 
 
 def _llm_chat(system, user, max_tokens=600):
-    """调用 OpenAI 兼容接口，返回文本；未配置 key 或调用失败返回 None。"""
+    """调用 OpenAI 兼容接口，返回文本；任何异常都不会向外冒。"""
     global _LAST_AI_STATUS
-    key = os.environ.get("OPENAI_API_KEY")
-    if not key:
-        _LAST_AI_STATUS = {"ok": False, "msg": "未配置 OPENAI_API_KEY（规则判分）"}
-        return None
-    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    try:
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            _LAST_AI_STATUS = {"ok": False, "msg": "未配置 OPENAI_API_KEY（规则判分）"}
+            return None
+        base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-    def _do_request(use_json_mode):
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "temperature": 0.4,
-            "max_tokens": max_tokens,
-        }
-        if use_json_mode:
-            payload["response_format"] = {"type": "json_object"}
-        req = urllib.request.Request(
-            base + "/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"]
+        def _do_request(use_json_mode):
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0.4,
+                "max_tokens": max_tokens,
+            }
+            if use_json_mode:
+                payload["response_format"] = {"type": "json_object"}
+            req = urllib.request.Request(
+                base + "/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return data["choices"][0]["message"]["content"]
 
-    # 第一次带 JSON 模式；若因不兼容失败，去掉 JSON 模式重试一次
-    for attempt, use_json in enumerate([True, False]):
-        try:
-            content = _do_request(use_json)
-            _LAST_AI_STATUS = {"ok": True, "msg": f"AI 调用成功（model={model}）"}
-            return content
-        except urllib.error.HTTPError as e:
-            body = ""
+        # 第一次带 JSON 模式；若失败去掉重试一次
+        for attempt, use_json in enumerate([True, False]):
             try:
-                body = e.read().decode("utf-8", errors="ignore")[:300]
-            except Exception:
-                pass
-            msg = f"AI 调用失败 HTTP {e.code}: {body}"
-            print(f"[ai_helper] {msg}", file=sys.stderr)
-            # 401/403 是鉴权问题，重试也没用，直接停
-            if e.code in (401, 403):
+                content = _do_request(use_json)
+                _LAST_AI_STATUS = {"ok": True, "msg": f"AI 调用成功（model={model}）"}
+                return content
+            except urllib.error.HTTPError as e:
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", errors="ignore")[:300]
+                except Exception:
+                    pass
+                msg = f"AI 调用失败 HTTP {e.code}: {body}"
+                print(f"[ai_helper] {msg}", file=sys.stderr, flush=True)
+                _LAST_AI_STATUS = {"ok": False, "msg": msg}
+                return None  # 不再重试，避免给中转站造成压力
+            except Exception as e:
+                msg = f"AI 调用异常: {type(e).__name__}: {e}"
+                print(f"[ai_helper] attempt={attempt} {msg}", file=sys.stderr, flush=True)
+                if attempt == 0:
+                    continue
                 _LAST_AI_STATUS = {"ok": False, "msg": msg}
                 return None
-            # 其他错误（如 JSON 模式不兼容）尝试去掉 response_format 再试
-            continue
-        except Exception as e:
-            msg = f"AI 调用异常: {type(e).__name__}: {e}"
-            print(f"[ai_helper] {msg}", file=sys.stderr)
-            if attempt == 0:
-                continue
+        _LAST_AI_STATUS = {"ok": False, "msg": "AI 调用失败（已重试，详见 Render Logs）"}
+        return None
+    except BaseException as e:  # 兜底：任何异常都吞掉，绝不外冒
+        msg = f"AI 兜底异常: {type(e).__name__}: {e}"
+        try:
+            print(f"[ai_helper] {msg}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+        try:
             _LAST_AI_STATUS = {"ok": False, "msg": msg}
-            return None
-    _LAST_AI_STATUS = {"ok": False, "msg": "AI 调用失败（已重试，详见 Render Logs）"}
-    return None
+        except Exception:
+            pass
+        return None
 
 
 def ai_test():
     """主动发一次极小请求，验证 AI 配置是否可用。返回 {ok, msg, detail}。"""
-    key = os.environ.get("OPENAI_API_KEY")
-    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-    info = {"configured": bool(key), "base_url": base, "model": model}
-    if not key:
-        return {"ok": False, "msg": "未配置 OPENAI_API_KEY", "detail": info}
-    raw = _llm_chat("你是测试助手", "回复两个字的JSON: {\"ok\":true}", max_tokens=30)
-    status = get_ai_status()
-    return {"ok": status["ok"], "msg": status["msg"],
-            "detail": info, "response": raw[:200] if raw else None}
+    try:
+        key = os.environ.get("OPENAI_API_KEY")
+        base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        info = {"configured": bool(key), "base_url": base, "model": model}
+        if not key:
+            return {"ok": False, "msg": "未配置 OPENAI_API_KEY", "detail": info}
+        raw = _llm_chat("你是测试助手", "回复两个字的JSON: {\"ok\":true}", max_tokens=20)
+        status = get_ai_status()
+        return {"ok": status.get("ok", False),
+                "msg": status.get("msg", ""),
+                "detail": info,
+                "response": (raw[:200] if raw else None)}
+    except BaseException as e:
+        return {"ok": False, "msg": f"自检接口异常: {type(e).__name__}: {e}",
+                "detail": {"configured": bool(os.environ.get("OPENAI_API_KEY")),
+                           "base_url": os.environ.get("OPENAI_BASE_URL", ""),
+                           "model": os.environ.get("OPENAI_MODEL", "")}}
 
 
 def ai_generate_quiz(feature_name, scenario, value_point):

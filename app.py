@@ -612,8 +612,11 @@ def api_generate_quiz():
 @app.route("/api/ai-test")
 def api_ai_test():
     """AI 配置自检：浏览器直接访问即可看到 AI 是否可用及失败原因。"""
-    from ai_helper import ai_test
-    return jsonify(ai_test())
+    try:
+        from ai_helper import ai_test
+        return jsonify(ai_test())
+    except BaseException as e:
+        return jsonify({"ok": False, "msg": f"自检接口异常: {type(e).__name__}: {e}"}), 200
 
 
 @app.route("/api/ai-status")
