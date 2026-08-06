@@ -18,6 +18,8 @@
     <form method="post" action="{{url_for('share_feature',fid=f.id)}}" style="display:inline">
       <button class="btn btn-success"><i class="bi bi-megaphone"></i> 标记分享并生成文案</button>
     </form>
+    {% elif f.status=='shared' %}
+    <a href="{{url_for('share_text',fid=f.id)}}" class="btn btn-success"><i class="bi bi-megaphone"></i> 生成分享文案</a>
     {% endif %}
   {% endif %}
 </div>

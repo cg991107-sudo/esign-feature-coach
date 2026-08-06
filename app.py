@@ -454,21 +454,29 @@ def fill_form(fid):
     if request.method == "POST":
         scenario = request.form.get("scenario", "").strip()
         value_point = request.form.get("value_point", "").strip()
-        status = "filled" if (scenario and value_point) else "pending"
-        filled_date = datetime.now().strftime("%Y-%m-%d %H:%M") if status == "filled" else None
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        if scenario and value_point:
+            # 填写完成 → 自动分享到学习中心（跳过 filled 中间态）
+            status = "shared"
+            filled_date = now_str
+            shared_date = f["shared_date"] or now_str  # 首次分享才记日期
+        else:
+            status = "pending"
+            filled_date = None
+            shared_date = f["shared_date"]  # 保留原值
         # SFR/管理员填写时，负责人自动变为填写者
         if u and u["role"] in ("sfr", "admin"):
             db.execute("""UPDATE features SET scenario=?, value_point=?, status=?,
-                                      filled_date=?, owner_sfr_id=? WHERE id=?""",
-                       (scenario, value_point, status, filled_date, u["id"], fid))
+                                      filled_date=?, shared_date=?, owner_sfr_id=? WHERE id=?""",
+                       (scenario, value_point, status, filled_date, shared_date, u["id"], fid))
             if not f["owner_sfr_id"]:
-                flash("已保存，您已成为该功能负责人", "success")
+                flash("已保存并自动同步到学习中心，您已成为该功能负责人", "success")
             else:
-                flash("已保存，负责人已更新为 " + u["name"], "success")
+                flash("已保存并自动同步到学习中心，负责人已更新为 " + u["name"], "success")
         else:
-            db.execute("""UPDATE features SET scenario=?, value_point=?, status=?, filled_date=?
-                          WHERE id=?""", (scenario, value_point, status, filled_date, fid))
-            flash("已保存", "success")
+            db.execute("""UPDATE features SET scenario=?, value_point=?, status=?, filled_date=?, shared_date=?
+                          WHERE id=?""", (scenario, value_point, status, filled_date, shared_date, fid))
+            flash("已保存并自动同步到学习中心", "success")
         db.commit()
         return redirect(url_for("features_page"))
     return render_template("fill_form.html", f=f, u=u)
