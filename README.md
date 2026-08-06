@@ -185,8 +185,8 @@ git push -u origin main
 1. 打开 https://render.com → 注册/登录（可用 GitHub 账号直接登录）
 2. 右上角 **New** → **Blueprint**
 3. 连接 GitHub，选择 `esign-feature-coach` 仓库
-4. Render 自动读取 `render.yaml`，确认配置后点 **Apply**
-5. 等待构建（约 1-2 分钟），完成后获得固定地址如 `https://esign-feature-coach.onrender.com`
+4. Render 自动读取 `render.yaml`，在环境变量里确认 `OPENAI_API_KEY` 已填入你的 key（没有就先留空，部署后也能在控制台补；**填了才启用真正的 AI 判分**，不填则降级为规则判分）
+5. 点 **Apply**，等待构建（约 1-2 分钟），完成后获得固定地址如 `https://esign-feature-coach.onrender.com`
 
 ### 第三步：数据持久化（重要）
 
@@ -204,5 +204,17 @@ git push -u origin main
 | `OPENAI_API_KEY` | 空 | **配置后启用真正的 AI 判分与出题**；为空则降级为规则判分 |
 | `OPENAI_BASE_URL` | https://api.openai.com/v1 | 兼容接口地址（可用 Azure / 国内代理 / 自建模型） |
 | `OPENAI_MODEL` | gpt-4o-mini | 判分/出题所用模型 |
+
+### 国内兼容端点（可选，强烈推荐）
+
+OpenAI 官方端点在国内访问不稳定，建议改用 OpenAI 兼容的国内服务。只需改 `OPENAI_BASE_URL` 和 `OPENAI_MODEL` 两个变量：
+
+| 服务商 | `OPENAI_BASE_URL` | `OPENAI_MODEL` | key 申请 |
+|--------|-------------------|----------------|----------|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | platform.deepseek.com |
+| 硅基流动 SiliconFlow | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V3` 等 | siliconflow.cn |
+| 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` | 阿里云百炼控制台 |
+
+> 任选其一即可。`OPENAI_API_KEY` 填对应服务商的 key，其余变量保持默认。判分/出题逻辑完全兼容 OpenAI Chat Completions 格式，国内访问更稳、延迟更低。
 
 > 部署后如果本地还想继续开发，本地运行仍用 `python app.py`（默认 5055 端口，数据存在本地 coach.db）。

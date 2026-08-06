@@ -14,6 +14,13 @@ services:
         value: "0"
       - key: DATA_DIR
         value: /data          # 配合下方持久磁盘；免费版无磁盘时 app 自动回退到项目目录
+      # ↓↓↓ AI 判分开关：填入 OPENAI_API_KEY 即启用真 AI 判分；留空则自动降级为规则判分
+      - key: OPENAI_API_KEY
+        value: ""            # 部署后在 Render 控制台「Environment → Environment Variables」填入你的 key
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1   # 可用国内兼容端点（DeepSeek / 硅基流动 / 阿里云百炼等）替换
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini  # 按所用端点支持的模型填写（如 deepseek-chat）
     # 持久磁盘：Starter 及以上套餐生效。挂载后数据库在重启/部署后依然保留。
     # 免费版会忽略此块，数据库保存在临时磁盘（重启/重新部署会重置，需重新导入 Excel）。
     disk:
