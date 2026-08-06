@@ -131,7 +131,7 @@ def ai_generate_quiz(feature_name, scenario, value_point):
         f"价值点：{value_point or '（未填写）'}\n\n"
         "请生成 JSON：\n"
         '{"question":"一道考察场景+价值的开放题",'
-        '"reference":"2-4个关键得分点，商务回答覆盖核心意思即可算对"}\n'
+        '"reference":"2-4个关键得分点，用逗号分隔，判分时按覆盖率打分"}\n'
         "只输出 JSON。"
     )
     raw = _llm_chat(system, user)
@@ -156,17 +156,28 @@ def _fallback_generate(name, scenario, value_point):
 
 
 def ai_judge(question, reference, user_answer):
-    """判定商务回答是否正确理解了场景与价值。返回 {correct, reason}。"""
+    """判定商务回答是否正确理解了场景与价值。返回 {correct, reason}。
+
+    判分规则（严格覆盖率制）：
+    - 将参考答案拆分为独立关键要点，逐个判断商务回答是否覆盖
+    - 覆盖率 ≥60% 判正确，<60% 判不正确
+    - reason 中需说明覆盖率明细（已覆盖/遗漏了哪些要点）
+    """
     system = (
-        "你是电子签名行业的售前考官。判断商务的回答是否正确理解了该功能的使用场景与价值。"
-        "只要回答覆盖了参考答案的关键意思（不必逐字相同、不必完整），即判为正确。"
+        "你是电子签名行业的售前考官。判断商务的回答是否正确理解了该功能的使用场景与价值。\n"
+        "判分规则（严格覆盖率制）：\n"
+        "1. 将参考答案拆分为 2-4 个独立的关键要点\n"
+        "2. 逐个判断商务回答是否覆盖了该要点（语义匹配，不必逐字相同）\n"
+        "3. 覆盖率 = 已覆盖要点数 / 总要点数\n"
+        "4. 覆盖率 ≥60% 才判 correct=true；<60% 判 correct=false\n"
+        "5. reason 中必须说明：总要点数、已覆盖哪些、遗漏了哪些、覆盖率百分比"
     )
     user = (
         f"题目：{question}\n"
         f"参考答案要点：{reference}\n"
         f"商务回答：{user_answer}\n\n"
         "请判断并输出 JSON：\n"
-        '{"correct": true或false, "reason": "一句话说明判分依据"}\n'
+        '{"correct": true或false, "reason": "覆盖X/Y个要点(覆盖率Z%)，已覆盖：...；遗漏：..."}\n'
         "只输出 JSON。"
     )
     raw = _llm_chat(system, user)
@@ -203,6 +214,6 @@ def _fallback_judge(reference, user_answer):
         if covered:
             hit += 1
     ratio = hit / len(blocks)
-    correct = ratio >= 0.4
+    correct = ratio >= 0.5
     return {"correct": correct,
-            "reason": f"（规则判分）覆盖 {hit}/{len(blocks)} 个要点，{'达标' if correct else '未达标'}（阈值40%）"}
+            "reason": f"（规则判分）覆盖 {hit}/{len(blocks)} 个要点（{ratio:.0%}），{'达标' if correct else '未达标'}（阈值50%）"}
