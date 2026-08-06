@@ -26,6 +26,10 @@
             <i class="bi bi-stars"></i> AI 辅助生成场景和价值
           </button>
           <small class="text-muted d-block mt-1 text-center">AI 基于功能名称自动生成参考内容，生成后您可自由修改</small>
+          <div id="related-products" class="mt-2 d-none">
+            <span class="text-muted small">相关 e签宝 产品能力：</span>
+            <span id="rp-tags"></span>
+          </div>
         </div>
       </div>
 
@@ -104,6 +108,19 @@ function aiGenerateScenario() {
       if (data.ok && data.data) {
         if (data.data.scenario) scenarioEl.value = data.data.scenario;
         if (data.data.value_point) valueEl.value = data.data.value_point;
+        // 展示相关 e签宝 产品能力标签
+        var rpBox = document.getElementById('related-products');
+        var rpTags = document.getElementById('rp-tags');
+        if (rpBox && rpTags && data.data.related_products) {
+          rpTags.innerHTML = '';
+          data.data.related_products.split(/[、,，]/).map(function(s){return s.trim();}).filter(Boolean).forEach(function(p){
+            var b = document.createElement('span');
+            b.className = 'badge bg-primary-subtle text-primary border border-primary me-1 mb-1';
+            b.textContent = p;
+            rpTags.appendChild(b);
+          });
+          rpBox.classList.remove('d-none');
+        }
         // 高亮提示
         scenarioEl.style.borderColor = '#0d6efd';
         valueEl.style.borderColor = '#0d6efd';
@@ -111,7 +128,7 @@ function aiGenerateScenario() {
           scenarioEl.style.borderColor = '';
           valueEl.style.borderColor = '';
         }, 3000);
-        alert('AI 生成完成！请检查并修改内容后保存。');
+        alert('AI 生成完成！已结合 e签宝 产品能力，请检查并修改内容后保存。');
       } else {
         alert('AI 生成失败：' + (data.msg || '未知错误') + '\n' + (data.detail || '') + '\n请手动填写或检查 AI 配置。');
       }

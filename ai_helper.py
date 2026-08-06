@@ -120,17 +120,38 @@ def ai_test():
                            "model": os.environ.get("OPENAI_MODEL", "")}}
 
 
+# e签宝产品能力知识库：供场景/价值生成时锚定到具体产品功能，避免输出空泛的通用话术
+ESIGN_PRODUCT_KNOWLEDGE = (
+    "e签宝核心产品能力（生成时必须结合其中 2-3 项具体能力）：\n"
+    "1. 实名认证：个人实名（手机号三要素、银行卡四要素、人脸活体）、企业实名（营业执照、对公打款验证、法人授权），是签署前身份可信的基础。\n"
+    "2. 电子签名/电子合同签署：SaaS 网页签署、微信签、短信签、链接签、批量签署、顺序/无序签署、骑缝章、表单签，支持 PC/移动全端。\n"
+    "3. 数字证书：CA 证书签发与托管、国密 SM2 证书、UKey 证书，满足等保/国密合规要求。\n"
+    "4. 电子印章：印章制作与管控、智能印控、用印审批流、印章权限分级，防止乱盖章。\n"
+    "5. 合同管理：合同模板库、在线起草/编辑、合同审批流、合同分类与检索、到期提醒、合同到期自动续签提醒。\n"
+    "6. 存证出证：区块链存证、可信时间戳、原文加密保全、公证处/司法鉴定直连、一键出证，保障司法采信。\n"
+    "7. 智能审核（AI）：合同风险条款 AI 审查、关键信息提取、合规校验。\n"
+    "8. 开放平台/API：与企业 OA、ERP、CRM、HR、业务系统深度集成，支持私有化/混合云部署。\n"
+    "9. 行业方案：政务、金融、人力资源、医疗、房地产、物流、制造等垂直场景模板。\n"
+    "10. 合规资质：符合《电子签名法》、等保三级、国密算法、ISO27001，具备 CA 牌照。"
+)
+
+
 def ai_generate_scenario_value(feature_name, category="", code=""):
     """根据功能名称，AI 生成使用场景和价值点，供 SFR 参考和修改。
 
-    返回 {"scenario": str, "value_point": str}，AI 不可用时返回空字符串。
+    返回 {"scenario": str, "value_point": str, "related_products": str}，AI 不可用时返回空字符串。
+    关键点：必须结合 e签宝 的具体产品能力，不能只写泛泛的"提升效率/降低成本"。
     """
     system = (
         "你是e签宝（中国领先的电子签名平台）的资深产品专家和售前顾问。\n"
         "你精通电子签章、电子合同、数字证书、实名认证、印章管理、存证出证等产品的业务场景和价值。\n"
+        "下面是 e签宝 的核心产品能力，你在生成场景和价值时必须结合其中具体的能力点，"
+        "不能只写泛泛的“提升效率、降低成本”，而要落到 e签宝 实际能做什么上：\n"
+        f"{ESIGN_PRODUCT_KNOWLEDGE}\n\n"
         "根据功能名称，为售前团队生成该功能的使用场景描述和价值点提炼，要求：\n"
-        "- 场景：写清楚什么类型客户、什么业务流程、传统方式的痛点\n"
-        "- 价值：从效率提升、成本降低、合规保障、协同体验等维度提炼，尽量量化\n"
+        "- 场景：写清楚什么类型客户、什么业务流程、传统方式的具体痛点（如纸质合同邮寄3天、印章乱用难追溯）\n"
+        "- 价值：从效率、成本、合规、协同维度提炼，必须点名 e签宝 的对应产品能力（如“通过微信签+批量签署，10分钟完成原需3天的跨地域签署”）\n"
+        "- related_products：列出该功能最相关的 2-4 个 e签宝 产品能力名称（用顿号分隔）\n"
         "- 语气：专业但通俗，售前可直接用来跟客户沟通"
     )
     user = (
@@ -138,8 +159,9 @@ def ai_generate_scenario_value(feature_name, category="", code=""):
         f"功能编码：{code or '（无）'}\n"
         f"功能分类：{category or '（无）'}\n\n"
         "请生成 JSON：\n"
-        '{"scenario":"2-4句话描述客户业务场景和痛点",'
-        '"value_point":"3-4条核心价值，每条一行，带量化数据"}\n'
+        '{"scenario":"2-4句话描述客户业务场景和具体痛点，结合 e签宝 产品能力",'
+        '"value_point":"3-4条核心价值，每条一行并点名对应 e签宝 产品能力，带量化数据",'
+        '"related_products":"2-4个相关 e签宝 产品能力，顿号分隔"}\n'
         "只输出 JSON。"
     )
     raw = _llm_chat(system, user, max_tokens=800)
@@ -154,12 +176,55 @@ def ai_generate_scenario_value(feature_name, category="", code=""):
             d = json.loads(cleaned)
             s = d.get("scenario", "").strip()
             v = d.get("value_point", "").strip()
+            rp = d.get("related_products", "").strip()
             if s or v:
-                return {"scenario": s, "value_point": v}
+                return {"scenario": s, "value_point": v, "related_products": rp}
             return {"scenario": "", "value_point": "", "error": f"AI 返回为空字段，raw: {raw[:300]}"}
         except Exception as e:
             return {"scenario": "", "value_point": "", "error": f"JSON 解析失败: {e}; raw: {raw[:300]}"}
     return {"scenario": "", "value_point": "", "error": get_ai_status().get("msg", "AI 无返回")}
+
+
+def ai_explain_wrong(question, reference, user_answer, judge_reason=""):
+    """商务答错时，生成标准正确答案与总结点评，帮助学习吸收。
+
+    返回 {"correct_answer": str, "summary": str}。AI 不可用时返回空字符串。
+    """
+    system = (
+        "你是e签宝的售前教练。商务在抢答考核中答错了，请基于题目、参考答案要点和商务的实际回答，"
+        "生成『标准正确答案』和『总结点评』，帮助商务理解吸收。\n"
+        "要求：\n"
+        "- correct_answer：用 1-2 句话给出该题目的标准正确回答，必须结合 e签宝 的具体产品功能"
+        "（如实名认证、电子合同签署、数字证书、电子印章、存证出证、API 集成等），不要泛泛而谈\n"
+        "- summary：3-4 句话总结：①商务为什么答错或答得不足 ②本功能对应的 e签宝 核心产品能力与客户价值 ③一句便于记忆的要点\n"
+        "- 语气：鼓励式、专业、贴近售前实战"
+    )
+    user = (
+        f"题目：{question}\n"
+        f"参考答案要点：{reference or '（无）'}\n"
+        f"商务回答：{user_answer}\n"
+        f"判分依据：{judge_reason or '（无）'}\n\n"
+        "请生成 JSON：\n"
+        '{"correct_answer":"标准正确答案（结合 e签宝 具体产品功能）",'
+        '"summary":"总结点评：错在哪、对应 e签宝 产品能力、记忆要点"}\n'
+        "只输出 JSON。"
+    )
+    raw = _llm_chat(system, user, max_tokens=500)
+    if raw:
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[cleaned.find("\n") + 1:]
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3].strip()
+        try:
+            d = json.loads(cleaned)
+            ca = d.get("correct_answer", "").strip()
+            sm = d.get("summary", "").strip()
+            if ca or sm:
+                return {"correct_answer": ca, "summary": sm}
+        except Exception:
+            pass
+    return {"correct_answer": "", "summary": ""}
 
 
 def ai_generate_quiz(feature_name, scenario, value_point):

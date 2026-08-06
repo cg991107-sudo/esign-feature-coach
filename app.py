@@ -144,7 +144,8 @@ def migrate_db():
             except Exception:
                 pass
     a_cols = [r["name"] for r in conn.execute("PRAGMA table_info(answers)")]
-    for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0")]:
+    for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0"),
+                    ("correct_answer", "TEXT"), ("wrong_summary", "TEXT")]:
         if col not in a_cols:
             try:
                 conn.execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
@@ -781,7 +782,19 @@ def quiz_answer(qid):
     if correct:
         flash("✅ 回答正确，+1分！", "success")
     else:
-        flash(f"❌ 未通过AI判分：{reason}", "info")
+        # 答错时 AI 生成正确答案与总结，供商务在详情页学习
+        ca, ws = "", ""
+        try:
+            from ai_helper import ai_explain_wrong
+            exp = ai_explain_wrong(q["question"], q["answer_hint"] or "", content, reason)
+            ca, ws = exp.get("correct_answer", ""), exp.get("summary", "")
+        except Exception:
+            pass
+        if ca or ws:
+            db.execute("UPDATE answers SET correct_answer=?, wrong_summary=? WHERE quiz_id=? AND user_id=?",
+                       (ca, ws, qid, u["id"]))
+            db.commit()
+        flash("❌ 未通过AI判分。已生成正确答案与总结，可在考题详情页查看学习。", "info")
     return redirect(url_for("quiz_page"))
 
 
@@ -839,6 +852,19 @@ def quiz_judge(qid, aid):
     db.execute("""UPDATE answers SET is_correct=?, judged_by=?, judged_at=?, auto_judged=0
                   WHERE id=?""", (1 if is_correct else 0, u["id"],
                                   datetime.now().strftime("%Y-%m-%d %H:%M"), aid))
+    # 判错时生成正确答案与总结；判对时清空
+    if not is_correct:
+        try:
+            from ai_helper import ai_explain_wrong
+            a = db.execute("SELECT content FROM answers WHERE id=?", (aid,)).fetchone()
+            qq = db.execute("SELECT question, answer_hint FROM quizzes WHERE id=?", (qid,)).fetchone()
+            exp = ai_explain_wrong(qq["question"], qq["answer_hint"] or "", a["content"], "")
+            db.execute("UPDATE answers SET correct_answer=?, wrong_summary=? WHERE id=?",
+                       (exp.get("correct_answer", ""), exp.get("summary", ""), aid))
+        except Exception:
+            pass
+    else:
+        db.execute("UPDATE answers SET correct_answer=NULL, wrong_summary=NULL WHERE id=?", (aid,))
     db.commit()
     flash("已改判（覆盖AI判分）", "success")
     return redirect(url_for("quiz_detail", qid=qid))
