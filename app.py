@@ -204,52 +204,25 @@ def stats():
 
 # ---------- 路由：登录 / 注册 / 退出 ----------
 
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login_page():
-    """登录页：列出已注册用户，点击即以此身份进入；新用户点下方去注册。"""
-    if session.get("uid"):
-        return redirect(url_for("index"))
-    db = get_db()
-    users = db.execute("SELECT * FROM users ORDER BY role, name").fetchall()
-    return render_template("login.html", users=users)
-
-
-@app.route("/users/<int:uid>/switch")
-def switch_user(uid):
-    """登录页点击某用户即以此身份进入（轻量内部工具，按名识别身份）。"""
-    session["uid"] = uid
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
-    if u:
-        flash(f"已登录：{u['name']}", "info")
-    return redirect(url_for("index"))
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register_page():
-    """首次使用：自助注册，填写姓名 + 身份（SFR / 商务AR）。"""
+    """登录页：已注册用户填写姓名即可进入，身份由管理员预先设定。"""
     if session.get("uid"):
         return redirect(url_for("index"))
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        role = request.form.get("role", "business")
+        name = (request.form.get("name") or "").strip()
         if not name:
             flash("请输入姓名", "danger")
-            return redirect(url_for("register_page"))
-        if role not in ("sfr", "business"):
-            role = "business"
+            return render_template("login.html")
         db = get_db()
-        try:
-            cur = db.execute("INSERT INTO users(name,role) VALUES(?,?)", (name, role))
-            db.commit()
-            uid = cur.lastrowid
-            session["uid"] = uid
-            flash(f"注册成功，欢迎 {name}！如身份选错，可联系管理员修改。", "success")
-            return redirect(url_for("index"))
-        except sqlite3.IntegrityError:
-            flash("该姓名已注册，请直接登录或换一个姓名", "danger")
-            return redirect(url_for("register_page"))
-    return render_template("register.html")
+        u = db.execute("SELECT * FROM users WHERE name=?", (name,)).fetchone()
+        if not u:
+            flash("未找到该用户，请联系管理员创建账号", "danger")
+            return render_template("login.html")
+        session["uid"] = u["id"]
+        flash(f"已登录：{u['name']}", "info")
+        return redirect(url_for("index"))
+    return render_template("login.html")
 
 
 @app.route("/logout")
