@@ -626,6 +626,25 @@ def api_ai_status():
     return jsonify(get_ai_status())
 
 
+@app.route("/api/ai-gen-scenario/<int:fid>")
+@require_role("sfr", "admin")
+def api_ai_gen_scenario(fid):
+    """AI 辅助生成功能的使用场景和价值点，供 SFR 参考。"""
+    try:
+        db = get_db()
+        f = db.execute("SELECT name, category, code FROM features WHERE id=?", (fid,)).fetchone()
+        if not f:
+            return jsonify({"ok": False, "msg": "功能不存在"})
+        from ai_helper import ai_generate_scenario_value
+        result = ai_generate_scenario_value(f["name"], f["category"] or "", f["code"] or "")
+        if result["scenario"] or result["value_point"]:
+            return jsonify({"ok": True, "data": result})
+        else:
+            return jsonify({"ok": False, "msg": "AI 生成失败，请检查 AI 配置或手动填写"})
+    except BaseException as e:
+        return jsonify({"ok": False, "msg": f"生成异常: {type(e).__name__}: {e}"}), 200
+
+
 @app.route("/quiz/create", methods=["GET", "POST"])
 @require_role("sfr", "admin")
 def quiz_create():

@@ -117,6 +117,41 @@ def ai_test():
                            "model": os.environ.get("OPENAI_MODEL", "")}}
 
 
+def ai_generate_scenario_value(feature_name, category="", code=""):
+    """根据功能名称，AI 生成使用场景和价值点，供 SFR 参考和修改。
+
+    返回 {"scenario": str, "value_point": str}，AI 不可用时返回空字符串。
+    """
+    system = (
+        "你是e签宝（中国领先的电子签名平台）的资深产品专家和售前顾问。\n"
+        "你精通电子签章、电子合同、数字证书、实名认证、印章管理、存证出证等产品的业务场景和价值。\n"
+        "根据功能名称，为售前团队生成该功能的使用场景描述和价值点提炼，要求：\n"
+        "- 场景：写清楚什么类型客户、什么业务流程、传统方式的痛点\n"
+        "- 价值：从效率提升、成本降低、合规保障、协同体验等维度提炼，尽量量化\n"
+        "- 语气：专业但通俗，售前可直接用来跟客户沟通"
+    )
+    user = (
+        f"功能名称：{feature_name}\n"
+        f"功能编码：{code or '（无）'}\n"
+        f"功能分类：{category or '（无）'}\n\n"
+        "请生成 JSON：\n"
+        '{"scenario":"2-4句话描述客户业务场景和痛点",'
+        '"value_point":"3-4条核心价值，每条一行，带量化数据"}\n'
+        "只输出 JSON。"
+    )
+    raw = _llm_chat(system, user, max_tokens=500)
+    if raw:
+        try:
+            d = json.loads(raw)
+            s = d.get("scenario", "").strip()
+            v = d.get("value_point", "").strip()
+            if s or v:
+                return {"scenario": s, "value_point": v}
+        except Exception:
+            pass
+    return {"scenario": "", "value_point": ""}
+
+
 def ai_generate_quiz(feature_name, scenario, value_point):
     """根据功能的场景与价值，生成一道抢答题 + 参考答案要点。"""
     system = (

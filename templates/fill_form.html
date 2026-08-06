@@ -19,10 +19,20 @@
     </div>
 
     <form method="post" class="mt-3">
+      <!-- AI 辅助生成按钮 -->
+      <div class="card mb-3 border-primary">
+        <div class="card-body py-2">
+          <button type="button" class="btn btn-primary w-100" id="btn-ai-gen" onclick="aiGenerateScenario()">
+            <i class="bi bi-stars"></i> AI 辅助生成场景和价值
+          </button>
+          <small class="text-muted d-block mt-1 text-center">AI 基于功能名称自动生成参考内容，生成后您可自由修改</small>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-header"><i class="bi bi-chat-square-text"></i> 使用场景 <span class="text-danger">*</span></div>
         <div class="card-body">
-          <textarea name="scenario" class="form-control" rows="6" placeholder="描述客户在什么业务场景下会用到这个功能&#10;&#10;例如：大型集团企业跨地区签署采购合同，涉及多地分公司盖章、多级审批，传统纸质签署流程耗时长达数天。使用电子签名后可实现分钟级跨地域签署。" required>{{f.scenario or ''}}</textarea>
+          <textarea name="scenario" id="scenario" class="form-control" rows="6" placeholder="描述客户在什么业务场景下会用到这个功能&#10;&#10;例如：大型集团企业跨地区签署采购合同，涉及多地分公司盖章、多级审批，传统纸质签署流程耗时长达数天。使用电子签名后可实现分钟级跨地域签署。" required>{{f.scenario or ''}}</textarea>
           <small class="text-muted">建议写清楚：什么类型客户、什么业务场景、解决了什么痛点</small>
         </div>
       </div>
@@ -30,7 +40,7 @@
       <div class="card mb-3">
         <div class="card-header"><i class="bi bi-gem"></i> 价值点 <span class="text-danger">*</span></div>
         <div class="card-body">
-          <textarea name="value_point" class="form-control" rows="6" placeholder="这个功能给客户带来的核心价值&#10;&#10;例如：&#10;1. 签署效率提升90%，从3天缩短至10分钟&#10;2. 降低快递和用纸成本，单合同节省15元&#10;3. 全流程存证，司法采信有保障&#10;4. 支持多地协同，不受地域限制" required>{{f.value_point or ''}}</textarea>
+          <textarea name="value_point" id="value_point" class="form-control" rows="6" placeholder="这个功能给客户带来的核心价值&#10;&#10;例如：&#10;1. 签署效率提升90%，从3天缩短至10分钟&#10;2. 降低快递和用纸成本，单合同节省15元&#10;3. 全流程存证，司法采信有保障&#10;4. 支持多地协同，不受地域限制" required>{{f.value_point or ''}}</textarea>
           <small class="text-muted">建议从效率、成本、合规、协同等维度提炼，最好有量化数据</small>
         </div>
       </div>
@@ -46,6 +56,9 @@
     <div class="card">
       <div class="card-header"><i class="bi bi-lightbulb"></i> 填写指南</div>
       <div class="card-body small">
+        <p class="fw-bold text-primary">AI 辅助生成</p>
+        <p class="text-muted">点击顶部「AI 辅助生成」按钮，AI 会基于功能名称自动生成场景和价值参考内容。生成后您可以自由修改补充。</p>
+        <hr>
         <p class="fw-bold text-primary">使用场景三要素</p>
         <ul>
           <li><strong>谁</strong>：什么行业/规模的客户</li>
@@ -66,4 +79,48 @@
     </div>
   </div>
 </div>
+
+<script>
+function aiGenerateScenario() {
+  var btn = document.getElementById('btn-ai-gen');
+  var scenarioEl = document.getElementById('scenario');
+  var valueEl = document.getElementById('value_point');
+
+  // 已有内容时确认是否覆盖
+  if (scenarioEl.value.trim() || valueEl.value.trim()) {
+    if (!confirm('当前已有内容，AI 生成将覆盖现有内容。是否继续？')) return;
+  }
+
+  // 按钮加载状态
+  var originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> AI 生成中...';
+
+  fetch('/api/ai-gen-scenario/{{f.id}}')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      if (data.ok && data.data) {
+        if (data.data.scenario) scenarioEl.value = data.data.scenario;
+        if (data.data.value_point) valueEl.value = data.data.value_point;
+        // 高亮提示
+        scenarioEl.style.borderColor = '#0d6efd';
+        valueEl.style.borderColor = '#0d6efd';
+        setTimeout(function() {
+          scenarioEl.style.borderColor = '';
+          valueEl.style.borderColor = '';
+        }, 3000);
+        alert('AI 生成完成！请检查并修改内容后保存。');
+      } else {
+        alert('AI 生成失败：' + (data.msg || '未知错误') + '\n请手动填写或检查 AI 配置。');
+      }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      alert('请求失败：' + err.message);
+    });
+}
+</script>
 {% endblock %}
