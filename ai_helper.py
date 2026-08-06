@@ -9,43 +9,96 @@ AI 辅助模块：根据功能场景/价值自动生成考题，并自动判定�
 部署到 Render 后，在环境变量里填 OPENAI_API_KEY 即可启用真 AI 判分。
 """
 import os
+import sys
 import json
 import re
 import urllib.request
+import urllib.error
+
+
+# 最近一次 AI 调用的状态（供前端/调试展示）
+_LAST_AI_STATUS = {"ok": False, "msg": "尚未调用"}
+
+
+def get_ai_status():
+    """返回最近一次 AI 调用状态，供前端展示「AI 是否可用」。"""
+    return dict(_LAST_AI_STATUS)
 
 
 def _llm_chat(system, user, max_tokens=600):
     """调用 OpenAI 兼容接口，返回文本；未配置 key 或调用失败返回 None。"""
+    global _LAST_AI_STATUS
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
+        _LAST_AI_STATUS = {"ok": False, "msg": "未配置 OPENAI_API_KEY（规则判分）"}
         return None
     base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": 0.4,
-        "max_tokens": max_tokens,
-    }
-    # 部分模型支持 JSON 模式；不支持时忽略（调用失败会自动走兜底）
-    try:
-        payload["response_format"] = {"type": "json_object"}
-    except Exception:
-        pass
-    req = urllib.request.Request(
-        base + "/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+
+    def _do_request(use_json_mode):
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.4,
+            "max_tokens": max_tokens,
+        }
+        if use_json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        req = urllib.request.Request(
+            base + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["choices"][0]["message"]["content"]
-    except Exception:
-        return None
+
+    # 第一次带 JSON 模式；若因不兼容失败，去掉 JSON 模式重试一次
+    for attempt, use_json in enumerate([True, False]):
+        try:
+            content = _do_request(use_json)
+            _LAST_AI_STATUS = {"ok": True, "msg": f"AI 调用成功（model={model}）"}
+            return content
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="ignore")[:300]
+            except Exception:
+                pass
+            msg = f"AI 调用失败 HTTP {e.code}: {body}"
+            print(f"[ai_helper] {msg}", file=sys.stderr)
+            # 401/403 是鉴权问题，重试也没用，直接停
+            if e.code in (401, 403):
+                _LAST_AI_STATUS = {"ok": False, "msg": msg}
+                return None
+            # 其他错误（如 JSON 模式不兼容）尝试去掉 response_format 再试
+            continue
+        except Exception as e:
+            msg = f"AI 调用异常: {type(e).__name__}: {e}"
+            print(f"[ai_helper] {msg}", file=sys.stderr)
+            if attempt == 0:
+                continue
+            _LAST_AI_STATUS = {"ok": False, "msg": msg}
+            return None
+    _LAST_AI_STATUS = {"ok": False, "msg": "AI 调用失败（已重试，详见 Render Logs）"}
+    return None
+
+
+def ai_test():
+    """主动发一次极小请求，验证 AI 配置是否可用。返回 {ok, msg, detail}。"""
+    key = os.environ.get("OPENAI_API_KEY")
+    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    info = {"configured": bool(key), "base_url": base, "model": model}
+    if not key:
+        return {"ok": False, "msg": "未配置 OPENAI_API_KEY", "detail": info}
+    raw = _llm_chat("你是测试助手", "回复两个字的JSON: {\"ok\":true}", max_tokens=30)
+    status = get_ai_status()
+    return {"ok": status["ok"], "msg": status["msg"],
+            "detail": info, "response": raw[:200] if raw else None}
 
 
 def ai_generate_quiz(feature_name, scenario, value_point):

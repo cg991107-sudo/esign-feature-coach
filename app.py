@@ -609,6 +609,20 @@ def api_generate_quiz():
     return jsonify({"question": res["question"], "reference": res.get("reference", "")})
 
 
+@app.route("/api/ai-test")
+def api_ai_test():
+    """AI 配置自检：浏览器直接访问即可看到 AI 是否可用及失败原因。"""
+    from ai_helper import ai_test
+    return jsonify(ai_test())
+
+
+@app.route("/api/ai-status")
+def api_ai_status():
+    """返回最近一次 AI 调用状态（不发起新请求）。"""
+    from ai_helper import get_ai_status
+    return jsonify(get_ai_status())
+
+
 @app.route("/quiz/create", methods=["GET", "POST"])
 @require_role("sfr", "admin")
 def quiz_create():
