@@ -9,6 +9,7 @@ services:
     branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    healthCheckPath: /health   # 避免首页 302 登录重定向被误判为不健康
     envVars:
       - key: FLASK_DEBUG
         value: "0"

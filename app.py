@@ -666,6 +666,12 @@ def api_generate_quiz():
     return jsonify({"question": res["question"], "reference": res.get("reference", "")})
 
 
+@app.route("/health")
+def health_check():
+    """Render 健康检查：不依赖登录、不访问 AI，确保负载均衡认为服务已就绪。"""
+    return "ok", 200
+
+
 @app.route("/api/ai-test")
 def api_ai_test():
     """AI 配置自检：浏览器直接访问即可看到 AI 是否可用及失败原因。"""
