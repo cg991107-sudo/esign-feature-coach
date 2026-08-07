@@ -7,49 +7,52 @@
 </div>
 
 <div class="row">
-  <div class="col-lg-8">
+  <div class="col-lg-7">
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-file-text"></i> 可直接复制到群（已自动标记为已分享）</span>
         <button class="btn btn-sm btn-brand" onclick="copyText()"><i class="bi bi-clipboard"></i> 一键复制全部</button>
       </div>
       <div class="card-body">
-        <textarea id="shareText" class="form-control scenario-text" rows="{{features|length * 14 + 4}}" readonly style="font-size:14px;line-height:1.8">📌 【功能价值分享合集】（共 {{features|length}} 个）
+<textarea id="shareText" class="form-control scenario-text" rows="{{features|length * 9 + 4}}" readonly style="font-size:14px;line-height:1.9">📢 功能价值分享合集（共 {{features|length}} 个）
 
-{% for f in features %}━━━━━━━━━━━━━━━━━━
-🔹 {{loop.index}}. {{f.name}}{% if f.code %}（编号：{{f.code}}）{% endif %}
-{% if f.category %}分类：{{f.category}}{% endif %}
+{% for f in features %}{{loop.index}}. {{f.name}}{% if f.code %}（{{f.code}}）{% endif %}
+   【场景】{{f.scenario or '（待填写）'}}
+   【价值】{{f.value_point or '（待填写）'}}
+   {% if f.owner_name %}👤 {{f.owner_name}}{% endif %}
 
-📍 使用场景
-{{f.scenario or '（待填写）'}}
-
-💎 核心价值
-{{f.value_point or '（待填写）'}}
-
-分享人：{{f.owner_name or '-'}}
-{% endfor %}━━━━━━━━━━━━━━━━━━
-
-请各位商务同学学习，后续会有抢答考核哦~ 💪</textarea>
+{% endfor %}请各位商务同学学习，后续会有抢答考核哦~ 💪</textarea>
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-lg-5">
     <div class="card">
-      <div class="card-header"><i class="bi bi-info-circle"></i> 使用说明</div>
-      <div class="card-body small">
-        <p>1. 勾选多个功能 → 批量生成此合集</p>
-        <p>2. 点击「一键复制全部」</p>
-        <p>3. 粘贴到 SFR+商务 群里</p>
-        <p>4. 提醒商务在「学习中心」标记已学习</p>
-        <hr>
-        <p class="text-muted mb-0">本次已包含：</p>
-        <ul class="mb-0 mt-1">
-          {% for f in features %}<li>{{f.name}}</li>{% endfor %}
-        </ul>
+      <div class="card-header"><i class="bi bi-eye"></i> 预览效果（{{features|length}} 项）</div>
+      <div class="card-body" style="max-height:72vh;overflow:auto">
+        {% for f in features %}
+        <div class="preview-card mb-3">
+          <h6 class="fw-bold mb-1">{{loop.index}}. {{f.name}}</h6>
+          {% if f.code or f.category %}<div class="mb-2">
+            {% if f.code %}<span class="badge bg-light text-dark border me-1">{{f.code}}</span>{% endif %}
+            {% if f.category %}<span class="badge bg-light text-dark border">{{f.category}}</span>{% endif %}
+          </div>{% endif %}
+          <div class="preview-label"><i class="bi bi-geo-alt text-primary"></i> 场景</div>
+          <div class="preview-content mb-2">{{f.scenario or '（待填写）'}}</div>
+          <div class="preview-label"><i class="bi bi-gem text-warning"></i> 价值</div>
+          <div class="preview-content">{{f.value_point or '（待填写）'}}</div>
+          {% if f.owner_name %}<div class="text-muted small border-top pt-2 mt-2">👤 {{f.owner_name}}</div>{% endif %}
+        </div>
+        {% endfor %}
       </div>
     </div>
   </div>
 </div>
+
+<style>
+.preview-card{background:#fafbfc;border:1px solid var(--border);border-radius:10px;padding:14px}
+.preview-label{font-weight:600;font-size:12px;color:#555;margin-bottom:3px}
+.preview-content{font-size:13.5px;line-height:1.7;white-space:pre-wrap;color:#222}
+</style>
 
 <script>
 function copyText(){

@@ -7,59 +7,69 @@
 </div>
 
 <div class="row">
-  <div class="col-lg-8">
+  <div class="col-lg-7">
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-file-text"></i> 可直接复制到群</span>
         <button class="btn btn-sm btn-brand" onclick="copyText()"><i class="bi bi-clipboard"></i> 一键复制</button>
       </div>
       <div class="card-body">
-        <textarea id="shareText" class="form-control scenario-text" rows="22" readonly style="font-size:14px;line-height:1.8">📌 【功能价值分享】{{f.name}}
-{% if f.code %}编号：{{f.code}}{% endif %}
-{% if f.category %}分类：{{f.category}}{% endif %}
+<textarea id="shareText" class="form-control scenario-text" rows="20" readonly style="font-size:14px;line-height:1.9">📌 功能价值分享
 
-━━━━━━━━━━━━━━━━━━
-📍 使用场景
-━━━━━━━━━━━━━━━━━━
+【功能名称】{{f.name}}
+{% if f.code %}【编号】{{f.code}}
+{% endif %}{% if f.category %}【分类】{{f.category}}{% endif %}
+
+【使用场景】
 {{f.scenario or '（待填写）'}}
 
-━━━━━━━━━━━━━━━━━━
-💎 核心价值
-━━━━━━━━━━━━━━━━━━
+【核心价值】
 {{f.value_point or '（待填写）'}}
 
-━━━━━━━━━━━━━━━━━━
-分享人：{{f.owner_name or '-'}}
-请各位商务同学学习，后续会有抢答考核哦~ 💪</textarea>
+👤 分享人：{{f.owner_name or '-'}}
+💡 请各位商务同学学习，后续会有抢答考核哦~</textarea>
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-lg-5">
     <div class="card">
+      <div class="card-header"><i class="bi bi-eye"></i> 预览效果</div>
+      <div class="card-body">
+        <div class="preview-card">
+          <h5 class="fw-bold mb-2">{{f.name}}</h5>
+          <div class="mb-3">
+            {% if f.code %}<span class="badge bg-light text-dark border me-1">{{f.code}}</span>{% endif %}
+            {% if f.category %}<span class="badge bg-light text-dark border">{{f.category}}</span>{% endif %}
+          </div>
+          <div class="mb-3">
+            <div class="preview-label"><i class="bi bi-geo-alt text-primary"></i> 使用场景</div>
+            <div class="preview-content">{{f.scenario or '（待填写）'}}</div>
+          </div>
+          <div class="mb-2">
+            <div class="preview-label"><i class="bi bi-gem text-warning"></i> 核心价值</div>
+            <div class="preview-content">{{f.value_point or '（待填写）'}}</div>
+          </div>
+          <div class="text-muted small border-top pt-2">👤 分享人：{{f.owner_name or '-'}}</div>
+        </div>
+      </div>
+    </div>
+    <div class="card mt-3">
       <div class="card-header"><i class="bi bi-info-circle"></i> 使用说明</div>
       <div class="card-body small">
         <p>1. 早会分享完毕后，点击「一键复制」</p>
         <p>2. 粘贴到 SFR+商务 群里</p>
         <p>3. 提醒商务在「学习中心」标记已学习</p>
         <p>4. 全部功能分享完毕后，在「抢答考核」出题</p>
-        <hr>
-        <p class="text-muted mb-0">文案已按群消息格式排版，可直接发送。</p>
       </div>
-    </div>
-    <div class="card mt-3">
-      <div class="card-header"><i class="bi bi-eye"></i> 预览效果</div>
-      <div class="card-body bg-light rounded" style="font-size:13px;white-space:pre-wrap;line-height:1.7">📌 【功能价值分享】{{f.name}}
-
-📍 使用场景
-{{f.scenario or '（待填写）'}}
-
-💎 核心价值
-{{f.value_point or '（待填写）'}}
-
-分享人：{{f.owner_name or '-'}}</div>
     </div>
   </div>
 </div>
+
+<style>
+.preview-card{background:#fafbfc;border:1px solid var(--border);border-radius:10px;padding:16px}
+.preview-label{font-weight:600;font-size:13px;color:#555;margin-bottom:4px}
+.preview-content{font-size:14px;line-height:1.7;white-space:pre-wrap;color:#222}
+</style>
 
 <script>
 function copyText(){
