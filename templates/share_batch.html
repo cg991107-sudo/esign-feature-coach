@@ -16,7 +16,7 @@
       <div class="card-body">
 <textarea id="shareText" class="form-control scenario-text" rows="{{features|length * 9 + 4}}" readonly style="font-size:14px;line-height:1.9">📢 功能价值分享合集（共 {{features|length}} 个）
 
-{% for f in features %}{{loop.index}}. {{f.name}}{% if f.code %}（{{f.code}}）{% endif %}
+{% for f in features %}{{f.name}}
    【场景】{{f.scenario or '（待填写）'}}
    【价值】{{f.value_point or '（待填写）'}}
    {% if f.owner_name %}👤 {{f.owner_name}}{% endif %}
@@ -31,11 +31,7 @@
       <div class="card-body" style="max-height:72vh;overflow:auto">
         {% for f in features %}
         <div class="preview-card mb-3">
-          <h6 class="fw-bold mb-1">{{loop.index}}. {{f.name}}</h6>
-          {% if f.code or f.category %}<div class="mb-2">
-            {% if f.code %}<span class="badge bg-light text-dark border me-1">{{f.code}}</span>{% endif %}
-            {% if f.category %}<span class="badge bg-light text-dark border">{{f.category}}</span>{% endif %}
-          </div>{% endif %}
+          <h6 class="fw-bold mb-1">{{f.name}}</h6>
           <div class="preview-label"><i class="bi bi-geo-alt text-primary"></i> 场景</div>
           <div class="preview-content mb-2">{{f.scenario or '（待填写）'}}</div>
           <div class="preview-label"><i class="bi bi-gem text-warning"></i> 价值</div>

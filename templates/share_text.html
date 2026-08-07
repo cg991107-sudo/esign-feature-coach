@@ -14,11 +14,9 @@
         <button class="btn btn-sm btn-brand" onclick="copyText()"><i class="bi bi-clipboard"></i> 一键复制</button>
       </div>
       <div class="card-body">
-<textarea id="shareText" class="form-control scenario-text" rows="20" readonly style="font-size:14px;line-height:1.9">📌 功能价值分享
+<textarea id="shareText" class="form-control scenario-text" rows="18" readonly style="font-size:14px;line-height:1.9">📌 功能价值分享
 
 【功能名称】{{f.name}}
-{% if f.code %}【编号】{{f.code}}
-{% endif %}{% if f.category %}【分类】{{f.category}}{% endif %}
 
 【使用场景】
 {{f.scenario or '（待填写）'}}
@@ -37,10 +35,6 @@
       <div class="card-body">
         <div class="preview-card">
           <h5 class="fw-bold mb-2">{{f.name}}</h5>
-          <div class="mb-3">
-            {% if f.code %}<span class="badge bg-light text-dark border me-1">{{f.code}}</span>{% endif %}
-            {% if f.category %}<span class="badge bg-light text-dark border">{{f.category}}</span>{% endif %}
-          </div>
           <div class="mb-3">
             <div class="preview-label"><i class="bi bi-geo-alt text-primary"></i> 使用场景</div>
             <div class="preview-content">{{f.scenario or '（待填写）'}}</div>
