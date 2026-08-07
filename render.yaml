@@ -14,7 +14,12 @@ services:
       - key: FLASK_DEBUG
         value: "0"
       - key: DATA_DIR
-        value: /data          # 配合下方持久磁盘；免费版无磁盘时 app 自动回退到项目目录
+        value: /data          # 上传文件等临时目录；数据库已改用下方 Postgres，不受此影响
+      # 数据库连接串：由下方 databases 中的 coach-db 自动注入，无需手动填写
+      - key: DATABASE_URL
+        fromDatabase:
+          name: coach-db
+          property: connectionString
       # ↓↓↓ AI 判分开关：填入 OPENAI_API_KEY 即启用真 AI 判分；留空则自动降级为规则判分
       - key: OPENAI_API_KEY
         value: ""            # 部署后在 Render 控制台「Environment → Environment Variables」填入你的 key
@@ -22,6 +27,14 @@ services:
         value: https://api.openai.com/v1   # 可用国内兼容端点（DeepSeek / 硅基流动 / 阿里云百炼等）替换
       - key: OPENAI_MODEL
         value: gpt-4o-mini  # 按所用端点支持的模型填写（如 deepseek-chat）
-    # 持久磁盘：升级到 Starter($7/月) 套餐后，在 Render 控制台 Service → Disks → Add Disk
-    # name: coachdata / mountPath: /data / sizeGB: 1，即可持续保存数据库
-    # 免费版每次重新部署会重置数据库（需重新导入 Excel）；临时使用够用。
+
+# 持久化数据库：免费 Postgres（数据不会因服务休眠/重新部署而丢失）
+# 升级套餐后可改为 basic/paid 计划以提升性能与容量
+databases:
+  - name: coach-db
+    databaseName: coach
+    user: coach
+    region: singapore
+    plan: free
+    postgresMajorVersion: "16"
+

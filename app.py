@@ -32,6 +32,24 @@ DB_PATH = os.path.join(DATA_DIR, "coach.db")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# 数据库方言：设置 DATABASE_URL（以 postgres:// 或 postgresql:// 开头）时启用 Postgres，
+# 否则回退到本地 SQLite 文件。两者共用同一套业务 SQL（占位符 ? 在 Postgres 下自动转为 %s）。
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+USE_PG = bool(DATABASE_URL) and DATABASE_URL.lower().startswith(("postgres://", "postgresql://"))
+
+psycopg2 = None
+DictCursor = None
+PgIntegrityError = ()
+if USE_PG:
+    try:
+        import psycopg2
+        from psycopg2.extras import DictCursor
+        from psycopg2 import IntegrityError as PgIntegrityError
+    except Exception:
+        psycopg2 = None
+        DictCursor = None
+        PgIntegrityError = ()
+
 app = Flask(__name__)
 app.secret_key = "esign-feature-coach-2026"
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
@@ -102,12 +120,142 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 """
 
+# Postgres 版建表语句：AUTOINCREMENT -> SERIAL；时间默认值改用 to_char(now(), ...)
+SCHEMA_PG = """
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL CHECK(role IN ('sfr','business','admin')),
+    created_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS')
+);
+CREATE TABLE IF NOT EXISTS features (
+    id SERIAL PRIMARY KEY,
+    code TEXT,
+    name TEXT NOT NULL,
+    category TEXT,
+    scenario TEXT,
+    value_point TEXT,
+    owner_sfr_id INTEGER,
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending','filled','shared')),
+    filled_date TEXT,
+    shared_date TEXT,
+    FOREIGN KEY (owner_sfr_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS learning_records (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    feature_id INTEGER NOT NULL,
+    learned_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'),
+    UNIQUE(user_id, feature_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (feature_id) REFERENCES features(id)
+);
+CREATE TABLE IF NOT EXISTS quizzes (
+    id SERIAL PRIMARY KEY,
+    feature_id INTEGER,
+    question TEXT NOT NULL,
+    answer_hint TEXT,
+    sfr_id INTEGER NOT NULL,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','closed')),
+    created_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'),
+    closed_at TEXT,
+    published_at TEXT,
+    deadline TEXT,
+    duration_min INTEGER DEFAULT 30,
+    auto_generated INTEGER DEFAULT 0,
+    judge_mode TEXT DEFAULT 'manual',
+    FOREIGN KEY (feature_id) REFERENCES features(id),
+    FOREIGN KEY (sfr_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS answers (
+    id SERIAL PRIMARY KEY,
+    quiz_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    answered_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'),
+    is_correct INTEGER,
+    judged_by INTEGER,
+    judged_at TEXT,
+    judge_reason TEXT,
+    auto_judged INTEGER DEFAULT 0,
+    UNIQUE(quiz_id, user_id),
+    FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (judged_by) REFERENCES users(id)
+);
+"""
+
+
+class _DB:
+    """兼容 SQLite / Postgres 的连接封装：业务代码统一用 ? 占位符，
+    Postgres 下自动把 ? 转成 %s；按列名取数两种方言均支持。"""
+
+    def __init__(self, raw, dialect, cur_factory=None):
+        self._raw = raw
+        self.dialect = dialect
+        self._cur_factory = cur_factory
+
+    def execute(self, sql, params=()):
+        if self.dialect == "pg":
+            sql = sql.replace("?", "%s")
+        cur = self._raw.cursor(cursor_factory=self._cur_factory) if self._cur_factory \
+            else self._raw.cursor()
+        cur.execute(sql, tuple(params))
+        return cur
+
+    def commit(self):
+        self._raw.commit()
+
+    def close(self):
+        try:
+            self._raw.close()
+        except Exception:
+            pass
+
+
+def _make_raw():
+    """返回一个 (raw_conn, dialect, cur_factory) 三元组。"""
+    if USE_PG and psycopg2 is not None:
+        url = DATABASE_URL
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        return psycopg2.connect(url), "pg", DictCursor
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn, "sqlite", None
+
+
+def _split_statements(schema):
+    out = []
+    for part in schema.split(";"):
+        part = part.strip()
+        if part:
+            out.append(part)
+    return out
+
+
+_DB_INITIALIZED = False
+
+
+def _ensure_db():
+    """延迟且容错的库初始化：首次请求时建表+灌示例数据；连不上也不崩溃，下次请求重试。"""
+    global _DB_INITIALIZED
+    if _DB_INITIALIZED:
+        return
+    try:
+        init_db()
+        seed_data()
+        _DB_INITIALIZED = True
+    except Exception as e:
+        app.logger.error("数据库初始化失败（将在下次请求重试）: %s", e)
+
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        _ensure_db()
+        raw, dialect, cur_factory = _make_raw()
+        g.db = _DB(raw, dialect, cur_factory)
     return g.db
 
 
@@ -119,40 +267,76 @@ def close_db(exc):
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript(SCHEMA)
-    conn.commit()
-    conn.close()
+    raw, dialect, cur_factory = _make_raw()
+    try:
+        if dialect == "pg":
+            for stmt in _split_statements(SCHEMA_PG):
+                cur = raw.cursor(cursor_factory=cur_factory) if cur_factory else raw.cursor()
+                cur.execute(stmt)
+        else:
+            raw.executescript(SCHEMA)
+        raw.commit()
+    finally:
+        raw.close()
     migrate_db()
 
 
 def migrate_db():
-    """为已存在的库补充新列，保证升级后兼容。"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    q_cols = [r["name"] for r in conn.execute("PRAGMA table_info(quizzes)")]
-    for col, ddl in [
-        ("published_at", "TEXT"),
-        ("deadline", "TEXT"),
-        ("duration_min", "INTEGER DEFAULT 30"),
-        ("auto_generated", "INTEGER DEFAULT 0"),
-        ("judge_mode", "TEXT DEFAULT 'manual'"),
-    ]:
-        if col not in q_cols:
-            try:
-                conn.execute(f"ALTER TABLE quizzes ADD COLUMN {col} {ddl}")
-            except Exception:
-                pass
-    a_cols = [r["name"] for r in conn.execute("PRAGMA table_info(answers)")]
-    for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0"),
-                    ("correct_answer", "TEXT"), ("wrong_summary", "TEXT")]:
-        if col not in a_cols:
-            try:
-                conn.execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
-            except Exception:
-                pass
-    conn.commit()
-    conn.close()
+    """为已存在的库补充新列，保证升级后兼容（两套方言分别处理）。"""
+    raw, dialect, cur_factory = _make_raw()
+    try:
+        if dialect == "pg":
+            cur = raw.cursor()
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='quizzes'")
+            q_cols = [r[0] for r in cur.fetchall()]
+            for col, ddl in [
+                ("published_at", "TEXT"),
+                ("deadline", "TEXT"),
+                ("duration_min", "INTEGER DEFAULT 30"),
+                ("auto_generated", "INTEGER DEFAULT 0"),
+                ("judge_mode", "TEXT DEFAULT 'manual'"),
+            ]:
+                if col not in q_cols:
+                    try:
+                        raw.cursor().execute(f"ALTER TABLE quizzes ADD COLUMN {col} {ddl}")
+                    except Exception:
+                        pass
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='answers'")
+            a_cols = [r[0] for r in cur.fetchall()]
+            for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0"),
+                            ("correct_answer", "TEXT"), ("wrong_summary", "TEXT")]:
+                if col not in a_cols:
+                    try:
+                        raw.cursor().execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
+                    except Exception:
+                        pass
+        else:
+            conn = raw
+            conn.row_factory = sqlite3.Row
+            q_cols = [r["name"] for r in conn.execute("PRAGMA table_info(quizzes)")]
+            for col, ddl in [
+                ("published_at", "TEXT"),
+                ("deadline", "TEXT"),
+                ("duration_min", "INTEGER DEFAULT 30"),
+                ("auto_generated", "INTEGER DEFAULT 0"),
+                ("judge_mode", "TEXT DEFAULT 'manual'"),
+            ]:
+                if col not in q_cols:
+                    try:
+                        conn.execute(f"ALTER TABLE quizzes ADD COLUMN {col} {ddl}")
+                    except Exception:
+                        pass
+            a_cols = [r["name"] for r in conn.execute("PRAGMA table_info(answers)")]
+            for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0"),
+                            ("correct_answer", "TEXT"), ("wrong_summary", "TEXT")]:
+                if col not in a_cols:
+                    try:
+                        conn.execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
+                    except Exception:
+                        pass
+        raw.commit()
+    finally:
+        raw.close()
 
 
 # ---------- 辅助函数 ----------
@@ -291,7 +475,7 @@ def add_user():
         db.execute("INSERT INTO users(name,role) VALUES(?,?)", (name, role))
         db.commit()
         flash(f"已添加用户 {name}", "success")
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, PgIntegrityError):
         flash("用户名已存在", "danger")
     return redirect(url_for("users_page"))
 
@@ -945,8 +1129,8 @@ SAMPLE_FEATURES = [
 
 
 def seed_data():
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
+    raw, dialect, cur_factory = _make_raw()
+    db = _DB(raw, dialect, cur_factory)
     # 只有空库才灌
     if db.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] > 0:
         db.close()
@@ -967,8 +1151,7 @@ def seed_data():
 
 # ---------- 启动 ----------
 
-init_db()
-seed_data()
+_ensure_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5055))
