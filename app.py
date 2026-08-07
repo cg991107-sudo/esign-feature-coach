@@ -1102,30 +1102,9 @@ def ranking_page():
 
 # ---------- 示例数据 ----------
 
-SAMPLE_SFRS = ["SFR-张明", "SFR-李华", "SFR-王芳", "SFR-赵磊", "SFR-陈静", "SFR-刘洋"]
-SAMPLE_BIZ = ["商务-周强", "商务-吴敏", "商务-郑涛", "商务-孙琳"]
-SAMPLE_FEATURES = [
-    ("F001", "电子签名", "签署核心"),
-    ("F002", "实名认证", "身份认证"),
-    ("F003", "印章管理", "印章中心"),
-    ("F004", "模板管理", "效率工具"),
-    ("F005", "批量签署", "效率工具"),
-    ("F006", "签署流程配置", "签署核心"),
-    ("F007", "存证出证", "司法保障"),
-    ("F008", "签署提醒", "效率工具"),
-    ("F009", "企业组织架构", "企业管理"),
-    ("F010", "权限管理", "企业管理"),
-    ("F011", "API集成对接", "开发能力"),
-    ("F012", "水印防伪", "安全合规"),
-    ("F013", "签署日志审计", "安全合规"),
-    ("F014", "移动端签署", "多端协同"),
-    ("F015", "人脸识别签署", "身份认证"),
-    ("F016", "电子劳动合同", "行业方案"),
-    ("F017", "电子采购合同", "行业方案"),
-    ("F018", "数据脱敏", "安全合规"),
-    ("F019", "签章SDK", "开发能力"),
-    ("F020", "可视化拖拽排版", "效率工具"),
-]
+# 团队真实账号（迁移到 Postgres 后写入种子，避免每次重新创建；功能由 Excel 重新导入）
+SAMPLE_SFRS = ["叙白", "大麦", "开阳", "朱诚凯", "江牧", "湛阙", "纳兰"]
+SAMPLE_BIZ = ["虚云", "阿雨"]
 
 
 def seed_data():
@@ -1140,11 +1119,6 @@ def seed_data():
     for n in SAMPLE_BIZ:
         db.execute("INSERT INTO users(name,role) VALUES(?,?)", (n, "business"))
     db.execute("INSERT INTO users(name,role) VALUES(?,?)", ("管理员", "admin"))
-    sfr_ids = [r[0] for r in db.execute("SELECT id FROM users WHERE role='sfr'").fetchall()]
-    for i, (code, name, cat) in enumerate(SAMPLE_FEATURES):
-        owner = sfr_ids[i % len(sfr_ids)]
-        db.execute("INSERT INTO features(code,name,category,owner_sfr_id) VALUES(?,?,?,?)",
-                   (code, name, cat, owner))
     db.commit()
     db.close()
 
