@@ -11,6 +11,7 @@ e签宝 · 功能价值教练 (Feature Value Coach)
 
 import os
 import re
+import json
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
@@ -805,7 +806,16 @@ def batch_share():
             LEFT JOIN users u ON u.id=f.owner_sfr_id
             WHERE f.id IN ({placeholders}) ORDER BY f.code, f.id""", fids).fetchall()
     flash(f"已标记 {len(feats)} 个功能为已分享", "success")
-    return render_template("share_batch.html", features=feats, u=current_user())
+    feats_json = json.dumps([{
+        "id": r["id"],
+        "name": r["name"],
+        "category": r["category"] or "",
+        "scenario": r["scenario"] or "（待填写）",
+        "value": r["value_point"] or "（待填写）",
+        "owner": r["owner_name"] or "-",
+    } for r in feats], ensure_ascii=False)
+    return render_template("share_batch.html", features=feats, u=current_user(),
+                           features_json=feats_json)
 
 
 @app.route("/share-text/<int:fid>")
