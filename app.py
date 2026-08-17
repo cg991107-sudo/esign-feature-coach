@@ -716,6 +716,7 @@ def delete_feature(fid):
 
 
 @app.route("/features/clear-all")
+@require_role("admin")
 def clear_all_features():
     db = get_db()
     # 按外键依赖顺序删除：先子表后主表
