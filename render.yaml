@@ -8,7 +8,7 @@ services:
     plan: free                 # 免费版即可运行；如需数据持久化请升级 Starter 并在控制台挂载磁盘
     branch: main
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 --graceful-timeout 30
     healthCheckPath: /health   # 避免首页 302 登录重定向被误判为不健康
     envVars:
       - key: FLASK_DEBUG
