@@ -4,7 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <h3 class="fw-bold mb-0"><i class="bi bi-megaphone text-success"></i> 群分享文案合集 <small class="text-muted">共 {{features|length}} 个功能</small></h3>
   <div class="d-flex gap-2">
-    <button class="btn btn-warning" onclick="downloadAllImages()"><i class="bi bi-image"></i> 下载全部图片</button>
+    <button class="btn btn-warning" onclick="downloadAllImages()"><i class="bi bi-image"></i> 下载合集长图（一张）</button>
     <a href="{{url_for('features_page')}}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回清单</a>
   </div>
 </div>
@@ -84,6 +84,8 @@ function sliceText(ctx, text, maxW){
   if(!lines.length) lines.push("");
   return lines;
 }
+
+/* 单条海报（独立图片 / 拼图复用） */
 function drawPoster(feat){
   var W=900, M=44, cx=M+34, cw=W-M*2-68;
   var bannerH=176, padTop=36, bottom=86;
@@ -140,6 +142,91 @@ function drawPoster(feat){
   x.fillText('e签宝 · 功能价值教练', W/2, H-30);
   return c;
 }
+
+/* 单张卡片的"内部高度"（不含总 banner/品牌条），供拼图累加 */
+function cardHeight(feat){
+  var W=900, M=44, cw=W-M*2-68;
+  var ctx_t=document.createElement('canvas').getContext('2d');
+  ctx_t.font='bold 34px "PingFang SC",sans-serif';
+  var nameN=sliceText(ctx_t, feat.name, cw).length;
+  ctx_t.font='23px "PingFang SC",sans-serif';
+  var scN=sliceText(ctx_t, feat.scenario, cw).length;
+  var valN=sliceText(ctx_t, feat.value, cw).length;
+  return 36 + nameN*46 + 14 + (feat.category?34:0) + 26
+       + 44 + scN*36 + 26 + 42 + valN*36 + 20 + 30 + 40 + 24 + 24;
+}
+/* 在给定 ctx、起始 y 上绘制一张卡片（不画背景/外框，仅内容），返回下一个 y */
+function drawCardContent(x, feat, top, W, cw){
+  var M=44, cx=M+34;
+  x.textAlign='left';
+  x.font='bold 34px "PingFang SC",sans-serif'; x.fillStyle='#C00000';
+  var nameLines=sliceText(x, feat.name, cw);
+  nameLines.forEach(function(ln,i){ x.fillText(ln, cx, top+34+i*46); });
+  top+=nameLines.length*46+14;
+  if(feat.category){ x.font='20px "PingFang SC",sans-serif'; x.fillStyle='#98a2b3'; x.fillText(feat.category, cx, top); top+=34; }
+  x.strokeStyle='#eef1f5'; x.lineWidth=1; x.beginPath(); x.moveTo(cx,top); x.lineTo(cx+cw,top); x.stroke(); top+=26;
+  x.font='bold 26px "PingFang SC",sans-serif'; x.fillStyle='#1e293b'; x.fillText('▎使用场景', cx, top); top+=44;
+  x.font='23px "PingFang SC",sans-serif'; x.fillStyle='#334155';
+  var scLines=sliceText(x, feat.scenario, cw);
+  scLines.forEach(function(ln,i){ x.fillText(ln, cx, top+30+i*36); });
+  top+=scLines.length*36+26;
+  x.font='bold 26px "PingFang SC",sans-serif'; x.fillStyle='#1e293b'; x.fillText('▎核心价值', cx, top); top+=42;
+  x.font='23px "PingFang SC",sans-serif';
+  var valLines=sliceText(x, feat.value, cw);
+  valLines.forEach(function(ln,i){ x.fillStyle=/^\s*\d+[.、:：]/.test(ln)?'#C00000':'#334155'; x.fillText(ln, cx, top+30+i*36); });
+  top+=valLines.length*36+20;
+  x.strokeStyle='#eef1f5'; x.beginPath(); x.moveTo(cx,top); x.lineTo(cx+cw,top); x.stroke(); top+=30;
+  x.font='22px "PingFang SC",sans-serif'; x.fillStyle='#64748b';
+  x.fillText('👤 分享人：'+(feat.owner||'-'), cx, top+22); top+=40;
+  x.fillText('💡 '+SHARE_FOOT, cx, top+22); top+=24;
+  return top;
+}
+/* 生成一张复合长图：总 banner + 所有功能卡片 + 底部条 */
+function drawCombinedPoster(){
+  var W=900, M=44, cw=W-M*2-68;
+  var bannerH=176, padTop=30, gap=26, bottom=86;
+  var n=FEATURES.length;
+  var bodyH=padTop;
+  FEATURES.forEach(function(f){ bodyH += cardHeight(f); });
+  bodyH += gap*(n-1);
+  var H=bannerH+bodyH+bottom;
+  var c=document.createElement('canvas'); c.width=W; c.height=H;
+  var x=c.getContext('2d');
+  // 背景 & 总 banner
+  x.fillStyle='#f4f6fa'; x.fillRect(0,0,W,H);
+  var grad=x.createLinearGradient(0,0,0,bannerH);
+  grad.addColorStop(0,'#C00000'); grad.addColorStop(1,'#B00CFF');
+  x.fillStyle=grad; x.fillRect(0,0,W,bannerH);
+  x.fillStyle='#fff'; x.textAlign='center';
+  x.font='bold 46px "PingFang SC",sans-serif';
+  x.fillText('e签宝 · 功能价值分享合集', W/2, 80);
+  x.font='22px "PingFang SC",sans-serif'; x.fillStyle='rgba(255,255,255,.92)';
+  x.fillText('共 '+n+' 个 · 场景沉淀 · 早会分享 · 学习考核', W/2, 126);
+
+  var cardX=M, cardW=W-M*2, rr=24;
+  var top=bannerH+padTop;
+  FEATURES.forEach(function(f, idx){
+    var ch=cardHeight(f);
+    var cardBot=top+ch;
+    // 白色圆角卡片底
+    x.fillStyle='#ffffff'; x.shadowColor='rgba(0,0,0,.06)'; x.shadowBlur=12; x.shadowOffsetY=3;
+    x.beginPath();
+    x.moveTo(cardX+rr,top); x.arcTo(cardX+cardW,top,cardX+cardW,top+rr,rr);
+    x.lineTo(cardX+cardW,cardBot-rr); x.arcTo(cardX+cardW,cardBot,cardX+cardW-rr,cardBot,rr);
+    x.lineTo(cardX+rr,cardBot); x.arcTo(cardX,cardBot,cardX,cardBot-rr,rr);
+    x.lineTo(cardX,top+rr); x.arcTo(cardX,top,cardX+rr,top,rr); x.closePath(); x.fill();
+    x.shadowColor='transparent'; x.shadowBlur=0; x.shadowOffsetY=0;
+    // 内容（内边距 34）
+    drawCardContent(x, f, top+34, W, cw);
+    top = cardBot + gap;
+  });
+
+  // 底部品牌条
+  x.fillStyle='#eef1f5'; x.fillRect(0,H-bottom,W,bottom);
+  x.textAlign='center'; x.fillStyle='#98a2b3'; x.font='20px "PingFang SC",sans-serif';
+  x.fillText('e签宝 · 功能价值教练', W/2, H-30);
+  return c;
+}
 function dl(c, name){
   var a=document.createElement('a'); a.download=name+'-分享图.png';
   a.href=c.toDataURL('image/png'); document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -150,10 +237,10 @@ function downloadOne(id){
 }
 function downloadAllImages(){
   if(!FEATURES.length){ alert('没有可下载的功能'); return; }
-  // 逐个下载（浏览器会依次触发多个下载）
-  FEATURES.forEach(function(f, idx){
-    setTimeout(function(){ dl(drawPoster(f), (f.name||('分享'+idx))); }, idx*400);
-  });
+  // 生成一张复合长图
+  var c=drawCombinedPoster();
+  var ts=new Date().toLocaleString().replace(/[\/\s:]/g,'-');
+  dl(c, '功能价值分享合集'+ts);
 }
 </script>
 {% endblock %}
