@@ -10,6 +10,7 @@ e签宝 · 功能价值教练 (Feature Value Coach)
 """
 
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
@@ -521,6 +522,37 @@ def delete_user(uid):
 
 # ---------- 路由：功能清单 ----------
 
+def format_content(text):
+    """自动整理功能场景/价值文本的格式：
+    - 去除首尾空白与多余空行
+    - 将「≥3 个连续换行」压缩为单空行
+    - 去除粘贴进来的常见噪音（邮箱签名、横线、大括号包裹等）
+    - 行内行首多余空格规整
+    """
+    if not text:
+        return ""
+    t = text.strip()
+    # 压缩多余连续空行（最多保留 1 个空行）
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    # 每行去掉行首行尾多余空白
+    lines = [ln.rstrip() for ln in t.splitlines()]
+    t = "\n".join(lines)
+    # 再去一次连续空行（去除行尾空白后再压缩）
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    # 清理常见的粘贴噪音：孤立分隔线或 emoji-only 行
+    lines = []
+    for ln in t.splitlines():
+        s = ln.strip()
+        if re.fullmatch(r"[-=*_—~•·#]{3,}", s):      # 孤立的分隔线
+            continue
+        if re.fullmatch(r"[─━═─=]+", s):             # 粗横线
+            continue
+        lines.append(ln)
+    t = "\n".join(lines).strip()
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t
+
+
 @app.route("/features")
 @require_login
 def features_page():
@@ -530,6 +562,8 @@ def features_page():
     cat = request.args.get("cat", "").strip()
     status = request.args.get("status", "").strip()
     mine = request.args.get("mine", "").strip()
+    tab = request.args.get("tab", "").strip()   # all / unshared / shared
+    owner = request.args.get("owner", "").strip()  # 负责人筛选："unclaimed" 或用户 id
     sql = """SELECT f.*, u.name owner_name FROM features f
              LEFT JOIN users u ON u.id=f.owner_sfr_id WHERE 1=1"""
     args = []
@@ -540,16 +574,30 @@ def features_page():
     if cat:
         sql += " AND f.category=?"
         args.append(cat)
-    if status:
+    # tab 与 status 二选一优先（tab 是顶部快捷切换）
+    if tab == "unshared":
+        sql += " AND f.status != 'shared'"
+    elif tab == "shared":
+        sql += " AND f.status='shared'"
+    elif status:
         sql += " AND f.status=?"
         args.append(status)
     if mine == "1" and u and u["role"] == "sfr":
         sql += " AND f.owner_sfr_id=?"
         args.append(u["id"])
+    if owner:
+        if owner == "unclaimed":
+            sql += " AND f.owner_sfr_id IS NULL"
+        elif owner.isdigit():
+            sql += " AND f.owner_sfr_id=?"
+            args.append(int(owner))
     sql += " ORDER BY f.code, f.id"
     rows = db.execute(sql, args).fetchall()
     cats = [r["category"] for r in db.execute(
         "SELECT DISTINCT category FROM features WHERE category IS NOT NULL").fetchall()]
+    # 负责人下拉选项：所有 SFR + "未认领"
+    owners = [r for r in db.execute(
+        "SELECT id,name FROM users WHERE role='sfr' ORDER BY name").fetchall()]
     # SFR 未认领数量（用于顶部提示）
     unclaimed = 0
     if u and u["role"] == "sfr":
@@ -560,9 +608,15 @@ def features_page():
             "SELECT COUNT(*) c FROM features WHERE owner_sfr_id=?", (u["id"],)).fetchone()["c"]
     else:
         my_count = 0
-    return render_template("features.html", features=rows, cats=cats,
-                           q=q, cat=cat, status=status, mine=mine,
-                           unclaimed=unclaimed, my_count=my_count, u=u)
+    # 用于顶部 tab 角标
+    unshared_count = db.execute(
+        "SELECT COUNT(*) c FROM features WHERE status != 'shared'").fetchone()["c"]
+    shared_count = db.execute(
+        "SELECT COUNT(*) c FROM features WHERE status='shared'").fetchone()["c"]
+    return render_template("features.html", features=rows, cats=cats, owners=owners,
+                           q=q, cat=cat, status=status, mine=mine, tab=tab, owner=owner,
+                           unclaimed=unclaimed, my_count=my_count, u=u,
+                           unshared_count=unshared_count, shared_count=shared_count)
 
 
 @app.route("/features/import", methods=["GET", "POST"])
@@ -685,8 +739,8 @@ def fill_form(fid):
         flash("功能不存在", "danger")
         return redirect(url_for("features_page"))
     if request.method == "POST":
-        scenario = request.form.get("scenario", "").strip()
-        value_point = request.form.get("value_point", "").strip()
+        scenario = format_content(request.form.get("scenario", ""))
+        value_point = format_content(request.form.get("value_point", ""))
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         if scenario and value_point:
             # 填写完成 → 自动分享到学习中心（跳过 filled 中间态）

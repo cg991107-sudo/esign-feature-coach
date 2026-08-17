@@ -11,6 +11,27 @@
   </div>
 </div>
 
+{# ---------- 已分享 / 未分享 快捷 Tab ---------- #}
+<div class="mb-3">
+  <ul class="nav nav-tabs">
+    <li class="nav-item">
+      <a class="nav-link {% if tab!='unshared' and tab!='shared' %}active{% endif %}" href="{{url_for('features_page')}}">
+        <i class="bi bi-grid-fill"></i> 全部 {% if u and u.role=='sfr' %}<span class="badge text-bg-secondary ms-1">{{my_count+unclaimed}}</span>{% endif %}
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='unshared' %}active{% endif %}" href="{{url_for('features_page', tab='unshared')}}">
+        <i class="bi bi-hourglass-split"></i> 未分享 {% if u and u.role!='sfr' %}<span class="badge text-bg-secondary ms-1">{{unshared_count}}</span>{% endif %}
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='shared' %}active{% endif %}" href="{{url_for('features_page', tab='shared')}}">
+        <i class="bi bi-check2-circle"></i> 已分享 {% if u and u.role!='sfr' %}<span class="badge text-bg-success ms-1">{{shared_count}}</span>{% endif %}
+      </a>
+    </li>
+  </ul>
+</div>
+
 {% if u and u.role == 'sfr' %}
 <div class="alert alert-info d-flex align-items-center gap-2 py-2 small mb-3">
   <i class="bi bi-info-circle"></i>
@@ -24,24 +45,32 @@
 <form class="card mb-3" method="get">
   <div class="card-body">
     <div class="row g-2 align-items-end">
-      <div class="col-md-4">
+      <div class="col-md-3">
         <label class="form-label small text-muted">搜索</label>
         <input type="text" name="q" value="{{q}}" class="form-control" placeholder="功能名/编号/场景">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small text-muted">分类</label>
         <select name="cat" class="form-select">
           <option value="">全部</option>
           {% for c in cats %}<option value="{{c}}" {% if cat==c %}selected{% endif %}>{{c}}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small text-muted">状态</label>
         <select name="status" class="form-select">
           <option value="">全部</option>
           <option value="pending" {% if status=='pending' %}selected{% endif %}>待填写</option>
           <option value="filled" {% if status=='filled' %}selected{% endif %}>已填写</option>
           <option value="shared" {% if status=='shared' %}selected{% endif %}>已分享</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted">负责人</label>
+        <select name="owner" class="form-select">
+          <option value="">全部负责人</option>
+          <option value="unclaimed" {% if owner=='unclaimed' %}selected{% endif %}>未认领</option>
+          {% for o in owners %}<option value="{{o.id}}" {% if owner==o.id|string %}selected{% endif %}>{{o.name}}</option>{% endfor %}
         </select>
       </div>
       <div class="col-md-2 d-flex gap-1">

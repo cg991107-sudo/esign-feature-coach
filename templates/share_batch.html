@@ -14,14 +14,17 @@
         <button class="btn btn-sm btn-brand" onclick="copyText()"><i class="bi bi-clipboard"></i> 一键复制全部</button>
       </div>
       <div class="card-body">
-<textarea id="shareText" class="form-control scenario-text" rows="{{features|length * 9 + 4}}" readonly style="font-size:14px;line-height:1.9">📢 功能价值分享合集（共 {{features|length}} 个）
+<textarea id="shareText" class="form-control scenario-text" rows="{{features|length * 9 + 4}}" readonly style="font-size:14px;line-height:1.9">📚 e签宝功能价值分享合集（共 {{features|length}} 个）
 
-{% for f in features %}{{f.name}}
-   【场景】{{f.scenario or '（待填写）'}}
-   【价值】{{f.value_point or '（待填写）'}}
-   {% if f.owner_name %}👤 {{f.owner_name}}{% endif %}
+{% for f in features %}【{{f.name}}】
+  ▎使用场景
+  {{f.scenario or '（待填写）'}}
 
-{% endfor %}请各位商务同学学习，后续会有抢答考核哦~ 💪</textarea>
+  ▎核心价值
+  {{f.value_point or '（待填写）'}}
+  {% if f.owner_name %}  👤 {{f.owner_name}}{% endif %}
+
+{% endfor %}💡 请各位商务同学学习，后续会有抢答考核哦~ 💪</textarea>
       </div>
     </div>
   </div>
@@ -31,10 +34,10 @@
       <div class="card-body" style="max-height:72vh;overflow:auto">
         {% for f in features %}
         <div class="preview-card mb-3">
-          <h6 class="fw-bold mb-1">{{f.name}}</h6>
-          <div class="preview-label"><i class="bi bi-geo-alt text-primary"></i> 场景</div>
+          <div class="preview-name"><i class="bi bi-file-earmark-text text-primary"></i> {{f.name}}</div>
+          <div class="preview-label"><i class="bi bi-geo-alt text-success"></i> 使用场景</div>
           <div class="preview-content mb-2">{{f.scenario or '（待填写）'}}</div>
-          <div class="preview-label"><i class="bi bi-gem text-warning"></i> 价值</div>
+          <div class="preview-label"><i class="bi bi-gem text-warning"></i> 核心价值</div>
           <div class="preview-content">{{f.value_point or '（待填写）'}}</div>
           {% if f.owner_name %}<div class="text-muted small border-top pt-2 mt-2">👤 {{f.owner_name}}</div>{% endif %}
         </div>
@@ -46,6 +49,7 @@
 
 <style>
 .preview-card{background:#fafbfc;border:1px solid var(--border);border-radius:10px;padding:14px}
+.preview-name{font-weight:700;font-size:14px;color:var(--brand);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #eef1f5}
 .preview-label{font-weight:600;font-size:12px;color:#555;margin-bottom:3px}
 .preview-content{font-size:13.5px;line-height:1.7;white-space:pre-wrap;color:#222}
 </style>
