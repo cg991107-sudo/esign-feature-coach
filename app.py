@@ -621,6 +621,7 @@ def features_page():
 
 
 @app.route("/features/import", methods=["GET", "POST"])
+@require_role("admin")
 def import_features():
     if request.method == "POST":
         f = request.files.get("file")

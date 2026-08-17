@@ -4,7 +4,9 @@
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <h3 class="fw-bold mb-0"><i class="bi bi-list-check text-primary"></i> 功能清单 <small class="text-muted fs-6">共 {{features|length}} 个</small></h3>
   <div class="d-flex gap-2">
+    {% if u and u.role == 'admin' %}
     <a href="{{url_for('import_features')}}" class="btn btn-brand"><i class="bi bi-upload"></i> 导入/添加功能</a>
+    {% endif %}
     {% if u and u.role == 'admin' and features %}
     <a href="{{url_for('clear_all_features')}}" class="btn btn-outline-danger" onclick="return confirm('⚠️ 将清空全部功能、学习记录和考题数据，确认？')"><i class="bi bi-trash"></i> 清空全部</a>
     {% endif %}
@@ -157,7 +159,7 @@
         {% endfor %}
         {% if not features %}
         <tr><td colspan="{% if u and u.role in ('sfr','admin') %}7{% else %}6{% endif %}">
-          <div class="empty-state"><i class="bi bi-inbox"></i><p>暂无功能数据，点击「导入/添加功能」开始</p></div>
+          <div class="empty-state"><i class="bi bi-inbox"></i><p>{% if u and u.role=='admin' %}暂无功能数据，点击「导入/添加功能」开始{% else %}暂无功能数据，请联系管理员导入{% endif %}</p></div>
         </td></tr>
         {% endif %}
       </tbody>
