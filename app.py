@@ -1162,8 +1162,17 @@ def ranking_page():
         GROUP BY u.id ORDER BY learned DESC, u.name
     """).fetchall()
     total_shared = db.execute("SELECT COUNT(*) c FROM features WHERE status='shared'").fetchone()["c"]
+    # SFR 分享榜：统计每个 SFR 认领的功能数、已分享数、分享进度
+    sfr_share = db.execute("""
+        SELECT u.id AS id, u.name AS name,
+            COUNT(f.id) AS total,
+            SUM(CASE WHEN f.status='shared' THEN 1 ELSE 0 END) AS shared_done
+        FROM users u LEFT JOIN features f ON f.owner_sfr_id=u.id
+        WHERE u.role='sfr'
+        GROUP BY u.id ORDER BY shared_done DESC, u.name
+    """).fetchall()
     return render_template("ranking.html", scores=scores, learning=learning,
-                           total_shared=total_shared, u=current_user())
+                           total_shared=total_shared, sfr_share=sfr_share, u=current_user())
 
 
 # ---------- 示例数据 ----------

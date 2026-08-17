@@ -35,6 +35,39 @@
         </table>
       </div>
     </div>
+
+    <div class="card mt-4">
+      <div class="card-header"><i class="bi bi-megaphone-fill"></i> SFR 分享榜 <small class="text-muted fs-6">按已分享功能数排名</small></div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th style="width:50px">排名</th><th>SFR</th><th class="text-center">已分享</th><th class="text-center">已认领</th><th class="text-end">分享进度</th></tr></thead>
+          <tbody>
+            {% for f in sfr_share %}
+            <tr {% if loop.index<=3 %}class="fw-bold"{% endif %}>
+              <td>
+                {% if loop.index==1 %}<span class="rank-1"><i class="bi bi-trophy-fill"></i> 1</span>
+                {% elif loop.index==2 %}<span class="rank-2">2</span>
+                {% elif loop.index==3 %}<span class="rank-3">3</span>
+                {% else %}{{loop.index}}{% endif %}
+              </td>
+              <td>{{f.name}}</td>
+              <td class="text-center"><span class="badge bg-success">{{f.shared_done or 0}}</span></td>
+              <td class="text-center"><span class="badge bg-light text-dark border">{{f.total or 0}}</span></td>
+              <td class="text-end">
+                {% if (f.total or 0) > 0 %}
+                <div class="progress" style="width:90px;display:inline-block"><div class="progress-bar" style="width:{{((f.shared_done or 0)/(f.total or 1)*100)|round(0)}}%"></div></div>
+                <small>{{((f.shared_done or 0)/(f.total or 1)*100)|round(0)}}%</small>
+                {% else %}<span class="text-muted">-</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not sfr_share %}
+            <tr><td colspan="5"><div class="empty-state"><i class="bi bi-megaphone"></i><p>暂无 SFR 分享数据</p></div></td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <div class="col-lg-5">
