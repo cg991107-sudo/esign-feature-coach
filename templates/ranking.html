@@ -25,7 +25,7 @@
               <td class="text-center"><span class="badge bg-success">{{s.correct or 0}}</span></td>
               <td class="text-center"><span class="badge bg-danger">{{s.wrong or 0}}</span></td>
               <td class="text-center"><span class="badge bg-warning text-dark">{{s.pending or 0}}</span></td>
-              <td class="text-end"><span class="badge bg-primary fs-6">{{s.correct or 0}} 分</span></td>
+              <td class="text-end"><span class="badge bg-primary fs-6">{{s.points or 0}} 分</span></td>
             </tr>
             {% endfor %}
             {% if not scores %}
@@ -99,11 +99,12 @@
       <div class="card-header"><i class="bi bi-info-circle"></i> 积分规则</div>
       <div class="card-body small">
         <ul class="mb-0">
-          <li>SFR 在「抢答考核」发布考题</li>
+          <li>SFR 在「抢答考核」发布考题（问答 或 多选）</li>
           <li>商务抢答，每题限答一次</li>
-          <li>SFR 判定回答正确 → <strong class="text-success">+1分</strong></li>
-          <li>回答错误不扣分</li>
-          <li>积分实时更新，排行榜自动排序</li>
+          <li>问答题：SFR/AI 判定正确 → <strong class="text-success">+1分</strong></li>
+          <li>多选题：每个正确答案 1 分，<strong>选中且正确就得分</strong>（如答案 ABD=3分，选中 AB=2分）</li>
+          <li>回答错误不额外扣分</li>
+          <li>积分实时更新，排行榜按总分自动排序</li>
         </ul>
       </div>
     </div>

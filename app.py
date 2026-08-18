@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     quiz_type TEXT DEFAULT 'qa',
     options TEXT,
     correct_answer TEXT,
+    full_score INTEGER DEFAULT 1,
     FOREIGN KEY (feature_id) REFERENCES features(id),
     FOREIGN KEY (sfr_id) REFERENCES users(id)
 );
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS answers (
     judged_at TEXT,
     judge_reason TEXT,
     auto_judged INTEGER DEFAULT 0,
+    score INTEGER DEFAULT 0,
     UNIQUE(quiz_id, user_id),
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
     FOREIGN KEY (user_id) REFERENCES users(id),
@@ -172,6 +174,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     quiz_type TEXT DEFAULT 'qa',
     options TEXT,
     correct_answer TEXT,
+    full_score INTEGER DEFAULT 1,
     FOREIGN KEY (feature_id) REFERENCES features(id),
     FOREIGN KEY (sfr_id) REFERENCES users(id)
 );
@@ -186,6 +189,7 @@ CREATE TABLE IF NOT EXISTS answers (
     judged_at TEXT,
     judge_reason TEXT,
     auto_judged INTEGER DEFAULT 0,
+    score INTEGER DEFAULT 0,
     UNIQUE(quiz_id, user_id),
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
     FOREIGN KEY (user_id) REFERENCES users(id),
@@ -306,6 +310,7 @@ def migrate_db():
                 ("quiz_type", "TEXT DEFAULT 'qa'"),
                 ("options", "TEXT"),
                 ("correct_answer", "TEXT"),
+                ("full_score", "INTEGER DEFAULT 1"),
             ]:
                 if col not in q_cols:
                     try:
@@ -315,7 +320,8 @@ def migrate_db():
             cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='answers'")
             a_cols = [r[0] for r in cur.fetchall()]
             for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0"),
-                            ("correct_answer", "TEXT"), ("wrong_summary", "TEXT")]:
+                            ("correct_answer", "TEXT"), ("wrong_summary", "TEXT"),
+                            ("score", "INTEGER DEFAULT 0")]:
                 if col not in a_cols:
                     try:
                         raw.cursor().execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
@@ -334,6 +340,7 @@ def migrate_db():
                 ("quiz_type", "TEXT DEFAULT 'qa'"),
                 ("options", "TEXT"),
                 ("correct_answer", "TEXT"),
+                ("full_score", "INTEGER DEFAULT 1"),
             ]:
                 if col not in q_cols:
                     try:
@@ -342,7 +349,8 @@ def migrate_db():
                         pass
             a_cols = [r["name"] for r in conn.execute("PRAGMA table_info(answers)")]
             for col, ddl in [("judge_reason", "TEXT"), ("auto_judged", "INTEGER DEFAULT 0"),
-                            ("correct_answer", "TEXT"), ("wrong_summary", "TEXT")]:
+                            ("correct_answer", "TEXT"), ("wrong_summary", "TEXT"),
+                            ("score", "INTEGER DEFAULT 0")]:
                 if col not in a_cols:
                     try:
                         conn.execute(f"ALTER TABLE answers ADD COLUMN {col} {ddl}")
@@ -452,10 +460,10 @@ def index():
     if u and u["role"] == "business":
         my_learned = db.execute(
             "SELECT COUNT(*) c FROM learning_records WHERE user_id=?", (u["id"],)).fetchone()["c"]
-    # 排行榜 top5
+    # 排行榜 top5（总分 = SUM(score)；多选按命中分，问答对1分）
     ranking = db.execute("""
-        SELECT u.name, COUNT(a.id) score
-        FROM users u LEFT JOIN answers a ON a.user_id=u.id AND a.is_correct=1
+        SELECT u.name, SUM(COALESCE(a.score,0)) score
+        FROM users u LEFT JOIN answers a ON a.user_id=u.id
         WHERE u.role='business'
         GROUP BY u.id ORDER BY score DESC, u.name LIMIT 5
     """).fetchall()
@@ -908,8 +916,8 @@ def quiz_page():
     # 商务待答题
     my_answers = {}
     if u["role"] == "business":
-        ar = db.execute("SELECT quiz_id, is_correct FROM answers WHERE user_id=?", (u["id"],)).fetchall()
-        my_answers = {r["quiz_id"]: r["is_correct"] for r in ar}
+        ar = db.execute("SELECT quiz_id, is_correct, score FROM answers WHERE user_id=?", (u["id"],)).fetchall()
+        my_answers = {r["quiz_id"]: {"correct": r["is_correct"], "score": r["score"]} for r in ar}
     return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers,
                            now_ts=int(datetime.now().timestamp()))
 
@@ -940,6 +948,68 @@ def api_generate_quiz():
             "correct_answer": res.get("correct_answer", ""),
         })
     return jsonify({"question": res["question"], "reference": res.get("reference", "")})
+
+
+@app.route("/quiz/auto-generate", methods=["POST"])
+@require_role("sfr", "admin")
+def quiz_auto_generate():
+    """系统批量自动出题：按功能清单中已填写场景/价值的功能，为每个功能自动生成一道多选题并发布。
+    可选 fids（勾选指定功能）；不传则对全部已填写且尚未有进行中判断题的功能生成。"""
+    db = get_db()
+    fids = [int(x) for x in request.form.getlist("fids") if x.isdigit()]
+    if fids:
+        ph = ",".join("?" for _ in fids)
+        feats = db.execute(
+            f"SELECT id,name,scenario,value_point FROM features WHERE id IN ({ph}) "
+            f"AND (value_point IS NOT NULL AND value_point!='')", fids).fetchall()
+    else:
+        feats = db.execute(
+            """SELECT id,name,scenario,value_point FROM features
+               WHERE (value_point IS NOT NULL AND value_point!='')
+                 AND id NOT IN (SELECT DISTINCT feature_id FROM quizzes WHERE feature_id IS NOT NULL AND status='active')
+               ORDER BY name""").fetchall()
+    if not feats:
+        flash("没有可自动出题的功能（需先填写场景/价值，或都已出过进行中的题）", "warning")
+        return redirect(url_for("quiz_page"))
+
+    u = current_user()
+    now = datetime.now()
+    duration = 30
+    deadline = now + timedelta(minutes=duration)
+    made, failed = 0, 0
+    try:
+        from ai_helper import ai_generate_quiz
+    except Exception:
+        ai_generate_quiz = None
+    for f in feats:
+        q = None
+        if ai_generate_quiz:
+            try:
+                q = ai_generate_quiz(f["name"], f["scenario"] or "", f["value_point"] or "", qtype="multi")
+            except Exception:
+                q = None
+        if not q or not q.get("question") or not q.get("options"):
+            failed += 1
+            continue
+        opts = [o for o in q.get("options", [])][:4]
+        while len(opts) < 4:
+            opts.append("（选项）")
+        ca = "".join(c for c in (q.get("correct_answer") or "").upper() if c in "ABCD")
+        if not ca:
+            ca = "A"
+        full_score = len(ca)
+        options_text = "|||".join(opts)
+        db.execute("""INSERT INTO quizzes(feature_id,question,answer_hint,sfr_id,status,
+                                    published_at,deadline,duration_min,auto_generated,judge_mode,
+                                    quiz_type,options,correct_answer,full_score)
+                      VALUES(?,?,?,?,'active',?,?,?,1,'ai','multi',?,?,?)""",
+                   (f["id"], q["question"], q.get("reference", ""), u["id"],
+                    now.strftime("%Y-%m-%d %H:%M:%S"), deadline.strftime("%Y-%m-%d %H:%M:%S"),
+                    duration, options_text, ca, full_score))
+        made += 1
+    db.commit()
+    flash(f"系统自动出题完成：成功发布 {made} 道多选题" + (f"，{failed} 道生成失败" if failed else "") + "（满分=正确答案数），30分钟内可抢答", "success")
+    return redirect(url_for("quiz_page"))
 
 
 @app.route("/health")
@@ -1042,17 +1112,21 @@ def quiz_create():
         now = datetime.now()
         duration = 30
         deadline = now + timedelta(minutes=duration)
+        if quiz_type == "multi":
+            full_score = len(correct_answer) if correct_answer else 1
+        else:
+            full_score = 1
         db.execute("""INSERT INTO quizzes(feature_id,question,answer_hint,sfr_id,status,
                                     published_at,deadline,duration_min,auto_generated,judge_mode,
-                                    quiz_type,options,correct_answer)
-                      VALUES(?,?,?,?,'active',?,?,?,1,'ai',?,?,?)""",
+                                    quiz_type,options,correct_answer,full_score)
+                      VALUES(?,?,?,?,'active',?,?,?,1,'ai',?,?,?,?)""",
                    (feature_id, question, answer_hint, u["id"],
                     now.strftime("%Y-%m-%d %H:%M:%S"),
                     deadline.strftime("%Y-%m-%d %H:%M:%S"), duration,
-                    quiz_type, options_text, correct_answer))
+                    quiz_type, options_text, correct_answer, full_score))
         db.commit()
         typ_label = "多选题" if quiz_type == "multi" else "问答题"
-        flash(f"已发布 {typ_label}（AI自动判分，30分钟内可抢答）", "success")
+        flash(f"已发布 {typ_label}（{'满分'+str(full_score)+'分' if quiz_type=='multi' else '1分'}，30分钟内可抢答）", "success")
         return redirect(url_for("quiz_page"))
     features = db.execute(
         "SELECT * FROM features WHERE value_point IS NOT NULL AND value_point!='' ORDER BY name").fetchall()
@@ -1106,26 +1180,37 @@ def quiz_answer(qid):
         content = " / ".join(display_parts) if display_parts else user_letters
         db.execute("INSERT INTO answers(quiz_id,user_id,content) VALUES(?,?,?)", (qid, u["id"], content))
         db.commit()
-        # 标准答案比对：选中字母集合 == 正确答案集合
-        correct_letters = sorted(set(q["correct_answer"] or ""))
-        correct = 1 if sorted(set(user_letters)) == sorted(set(''.join(correct_letters) or '')) else 0
-        reason = f"本题为多选题，正确答案为 {''.join(sorted(set(q['correct_answer'] or '')))}，你选择了 {user_letters or '无'}"
-        if correct == 0 and (not user_letters):
-            reason += "（未选择任何选项）"
-        db.execute("""UPDATE answers SET is_correct=?, judge_reason=?, auto_judged=1
+        # 分值制：正确答案集合 full；答题选的正确项命中数 = 得分（每个正确答案1分）
+        correct_set = set((q["correct_answer"] or "").upper()) - set(" \t,，;；")
+        user_set = set(user_letters)
+        hit = len(correct_set & user_set)          # 命中的正确答案数
+        full_score = int(q["full_score"] or 1)      # 全对满分（=正确答案数）
+        if full_score <= 0:
+            full_score = len(correct_set) or 1
+        score = hit
+        correct = 1 if score == full_score else 0   # 全对才标记为"答对"
+        ca_text = "".join(sorted(correct_set))
+        reason = f"本题满分 {full_score} 分（每正确选项1分）。正确答案 {ca_text}，你选择了 {user_letters or '无'}，命中 {hit} 分。"
+        db.execute("""UPDATE answers SET is_correct=?, score=?, judge_reason=?, auto_judged=1
                       WHERE quiz_id=? AND user_id=?""",
-                   (correct, reason, qid, u["id"]))
+                   (correct, score, reason, qid, u["id"]))
         db.commit()
         if correct:
-            flash("✅ 回答正确，+1分！", "success")
+            flash(f"✅ 全部答对，获得 {full_score} 分！", "success")
+        elif score > 0:
+            opts_text = "；".join(f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q)) if q["options"] else ""
+            db.execute("""UPDATE answers SET correct_answer=?, wrong_summary=?
+                          WHERE quiz_id=? AND user_id=?""",
+                       (ca_text, f"部分得分。正确答案：{opts_text}", qid, u["id"]))
+            db.commit()
+            flash(f"🌓 部分正确，命中 {score}/{full_score} 分。可查看正确答案。", "info")
         else:
-            ca_text = "".join(sorted(set(q["correct_answer"] or "")))
             opts_text = "；".join(f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q)) if q["options"] else ""
             db.execute("""UPDATE answers SET correct_answer=?, wrong_summary=?
                           WHERE quiz_id=? AND user_id=?""",
                        (ca_text, f"正确答案：{opts_text}", qid, u["id"]))
             db.commit()
-            flash(f"❌ 回答不正确。正确答案是 {ca_text}，可在详情页查看。", "info")
+            flash(f"❌ 答错，未得分。正确答案 {ca_text}，可在详情页查看。", "info")
         return redirect(url_for("quiz_page"))
 
     # ---------- 问答（原有逻辑） ----------
@@ -1144,9 +1229,9 @@ def quiz_answer(qid):
     except Exception as e:
         correct = 0
         reason = f"判分异常：{e}"
-    db.execute("""UPDATE answers SET is_correct=?, judge_reason=?, auto_judged=1
+    db.execute("""UPDATE answers SET is_correct=?, score=?, judge_reason=?, auto_judged=1
                   WHERE quiz_id=? AND user_id=?""",
-               (correct, reason, qid, u["id"]))
+               (correct, 1 if correct else 0, reason, qid, u["id"]))
     db.commit()
     if correct:
         flash("✅ 回答正确，+1分！", "success")
@@ -1219,16 +1304,19 @@ def quiz_judge(qid, aid):
     is_correct = request.form.get("is_correct") == "1"
     u = current_user()
     db = get_db()
-    db.execute("""UPDATE answers SET is_correct=?, judged_by=?, judged_at=?, auto_judged=0
-                  WHERE id=?""", (1 if is_correct else 0, u["id"],
+    qq = db.execute("SELECT full_score FROM quizzes WHERE id=?", (qid,)).fetchone()
+    full_score = int((qq["full_score"] if qq else 1) or 1)
+    score = full_score if is_correct else 0
+    db.execute("""UPDATE answers SET is_correct=?, score=?, judged_by=?, judged_at=?, auto_judged=0
+                  WHERE id=?""", (1 if is_correct else 0, score, u["id"],
                                   datetime.now().strftime("%Y-%m-%d %H:%M"), aid))
     # 判错时生成正确答案与总结；判对时清空
     if not is_correct:
         try:
             from ai_helper import ai_explain_wrong
             a = db.execute("SELECT content FROM answers WHERE id=?", (aid,)).fetchone()
-            qq = db.execute("SELECT question, answer_hint FROM quizzes WHERE id=?", (qid,)).fetchone()
-            exp = ai_explain_wrong(qq["question"], qq["answer_hint"] or "", a["content"], "")
+            qq2 = db.execute("SELECT question, answer_hint FROM quizzes WHERE id=?", (qid,)).fetchone()
+            exp = ai_explain_wrong(qq2["question"], qq2["answer_hint"] or "", a["content"], "")
             db.execute("UPDATE answers SET correct_answer=?, wrong_summary=? WHERE id=?",
                        (exp.get("correct_answer", ""), exp.get("summary", ""), aid))
         except Exception:
@@ -1251,22 +1339,35 @@ def quiz_close(qid):
     return redirect(url_for("quiz_detail", qid=qid))
 
 
+@app.route("/quiz/<int:qid>/delete", methods=["POST"])
+@require_role("admin")
+def quiz_delete(qid):
+    """管理员删除考题（连同全部作答记录一起删除）。"""
+    db = get_db()
+    db.execute("DELETE FROM answers WHERE quiz_id=?", (qid,))
+    db.execute("DELETE FROM quizzes WHERE id=?", (qid,))
+    db.commit()
+    flash("考题及其作答记录已删除", "info")
+    return redirect(url_for("quiz_page"))
+
+
 # ---------- 路由：排行榜 ----------
 
 @app.route("/ranking")
 @require_login
 def ranking_page():
     db = get_db()
-    # 积分榜
+    # 积分榜：points = SUM(score)（多选题按命中正确答案数计分；问答题答对1分）
     scores = db.execute("""
         SELECT u.id, u.name,
             COUNT(a.id) answered,
             SUM(CASE WHEN a.is_correct=1 THEN 1 ELSE 0 END) correct,
             SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) wrong,
-            SUM(CASE WHEN a.is_correct IS NULL THEN 1 ELSE 0 END) pending
+            SUM(CASE WHEN a.is_correct IS NULL THEN 1 ELSE 0 END) pending,
+            SUM(COALESCE(a.score,0)) AS points
         FROM users u LEFT JOIN answers a ON a.user_id=u.id
         WHERE u.role='business'
-        GROUP BY u.id ORDER BY correct DESC, answered ASC, u.name
+        GROUP BY u.id ORDER BY points DESC, answered ASC, u.name
     """).fetchall()
     # 学习榜
     learning = db.execute("""
