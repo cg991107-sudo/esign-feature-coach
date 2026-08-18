@@ -6,7 +6,7 @@
   <a href="{{url_for('quiz_page')}}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回</a>
 </div>
 
-<div class="alert alert-info"><i class="bi bi-robot"></i> 选择已填写场景/价值的功能，点击「<b>✨ AI 生成考题</b>」，系统会自动根据题目和参考答案（基于功能价值点生成），你<strong>确认或修改后</strong>再发布。发布后<strong>30 分钟内</strong>商务可抢答，<strong>超时自动截止</strong>；商务提交后<strong>系统用 AI 自动判分</strong>。</div>
+<div class="alert alert-info"><i class="bi bi-robot"></i> 选择已填写场景/价值的功能，选择「<b>多选题</b>」或「问答题」题型，点击「<b>✨ AI 生成考题</b>」自动生成。发布后<strong>30 分钟内</strong>商务可抢答，<strong>超时自动截止</strong>；<strong>多选题按选项比对自动判分，问答题由 AI 判断</strong>。</div>
 
 <div class="row">
   <div class="col-lg-8">
@@ -27,14 +27,35 @@
             <small class="text-muted">基于该功能的场景 + 价值点自动生成题目与参考答案</small>
           </div>
           <div class="mb-3">
+            <label class="form-label fw-bold">考题类型 <span class="text-danger">*</span></label>
+            <select name="quiz_type" id="quiz_type" class="form-select" onchange="toggleType()">
+              <option value="multi" {% if request.form.get('quiz_type','multi')=='multi' %}selected{% endif %}>多选题（商务勾选选项作答）</option>
+              <option value="qa" {% if request.form.get('quiz_type')=='qa' %}selected{% endif %}>问答题（商务文字作答）</option>
+            </select>
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-bold">考题 <span class="text-danger">*</span></label>
             <textarea name="question" id="question" class="form-control" rows="3" placeholder="点上方「AI 生成考题」自动填充，或手动输入" required></textarea>
           </div>
-          <div class="mb-3">
+          <div class="mb-3" id="refBlock">
             <label class="form-label fw-bold">参考答案 / 判分要点（SFR可见，商务不可见）</label>
-            <textarea name="answer_hint" id="answer_hint" class="form-control" rows="3" placeholder="AI 自动生成，你可修改。商务回答覆盖核心要点即判对"></textarea>
+            <textarea name="answer_hint" id="answer_hint" class="form-control" rows="3" placeholder="问答题时填写，商务回答覆盖核心要点即判对"></textarea>
           </div>
-          <button class="btn btn-brand w-100"><i class="bi bi-send"></i> 发布考题（30分钟限时 · AI自动判分）</button>
+          <div class="card border-primary mb-3" id="multiBlock">
+            <div class="card-header py-2"><i class="bi bi-ui-checks"></i> 多选题设置 <small class="text-muted">至少 2 个选项，正确答案可多选</small></div>
+            <div class="card-body">
+              {% for i in [1,2,3,4] %}
+              <div class="input-group mb-2">
+                <span class="input-group-text">{{["A","B","C","D"][i-1]}}</span>
+                <input type="text" name="opt{{i}}" id="opt{{i}}" class="form-control" placeholder="选项 {{["A","B","C","D"][i-1]}}">
+                <span class="input-group-text"><input type="checkbox" class="form-check-input mt-0 opt-ck" value="{{i-1}}" title="正确答案"></span>
+              </div>
+              {% endfor %}
+              <input type="hidden" name="correct_answer" id="correct_answer">
+              <small class="text-muted">勾选选项右侧复选框即为正确答案，可多选；或点 AI 生成自动填好。</small>
+            </div>
+          </div>
+          <button class="btn btn-brand w-100"><i class="bi bi-send"></i> 发布考题（30分钟限时 · 判分：多选按答案比对 / 问答按AI判）</button>
         </form>
       </div>
     </div>
@@ -64,25 +85,70 @@
 </div>
 
 <script>
+function toggleType(){
+  var qt = document.getElementById('quiz_type').value;
+  document.getElementById('multiBlock').style.display = (qt==='multi') ? '' : 'none';
+  document.getElementById('refBlock').style.display = (qt==='multi') ? 'none' : '';
+}
+function collectCorrect(){
+  // 由勾选的选项下标生成正确答案（如 "A,C"）
+  var sel = [];
+  document.querySelectorAll('.opt-ck').forEach(function(cb){ if(cb.checked) sel.push(cb.value); });
+  var letters = sel.map(function(v){ return String.fromCharCode(65 + parseInt(v)); });
+  document.getElementById('correct_answer').value = letters.join(',');
+}
+// 勾选变化时同步 correct_answer
+document.addEventListener('change', function(e){
+  if(e.target && e.target.classList && e.target.classList.contains('opt-ck')) collectCorrect();
+});
 function generateQuiz(){
   var fid = document.getElementById('feature_id').value;
   if(!fid){ alert('请先选择关联功能'); return; }
+  var qt = document.getElementById('quiz_type').value;
   var btn = document.getElementById('genBtn');
   var old = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 生成中...';
-  fetch('/api/generate-quiz?feature_id=' + fid)
+  fetch('/api/generate-quiz?feature_id=' + fid + '&type=' + qt)
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(d.error){ alert(d.error); }
       else {
         document.getElementById('question').value = d.question || '';
-        document.getElementById('answer_hint').value = d.reference || '';
+        if(qt==='multi'){
+          document.getElementById('answer_hint').value = d.reference || '';
+          // 填选项
+          var opts = d.options || [];
+          for(var i=0;i<4;i++){
+            var fld = document.getElementById('opt'+(i+1));
+            if(fld && opts[i]) fld.value = opts[i]; else if(fld) fld.value='';
+          }
+          // 勾选正确答案
+          var all = document.querySelectorAll('.opt-ck');
+          all.forEach(function(cb){ cb.checked=false; });
+          var ca = (d.correct_answer||'').toUpperCase().replace(/[^A-D]/g,'');
+          for(var j=0;j<ca.length;j++){
+            var idx = ca.charCodeAt(j)-65;
+            if(idx>=0 && idx<4 && all[idx]) all[idx].checked=true;
+          }
+          collectCorrect();
+        } else {
+          document.getElementById('answer_hint').value = d.reference || '';
+        }
         flash('已生成，可修改后发布', 'success');
       }
     })
     .catch(function(e){ alert('生成失败：' + e); })
     .finally(function(){ btn.disabled = false; btn.innerHTML = old; });
 }
+// 表单提交前校验选择题
+document.querySelector('form').addEventListener('submit', function(ev){
+  if(document.getElementById('quiz_type').value==='multi'){
+    var filled=0;
+    for(var i=1;i<=4;i++){ if(document.getElementById('opt'+i).value.trim()) filled++; }
+    if(filled<2){ ev.preventDefault(); alert('多选题至少需要 2 个选项'); return; }
+    if(!document.getElementById('correct_answer').value){ ev.preventDefault(); alert('请勾选多选题的正确答案'); return; }
+  }
+});
 function flash(msg, type){
   var box = document.createElement('div');
   box.className = 'alert alert-' + (type||'info') + ' mt-2 py-1 px-2 small';
@@ -90,5 +156,6 @@ function flash(msg, type){
   document.querySelector('form').prepend(box);
   setTimeout(function(){ box.remove(); }, 2500);
 }
+document.addEventListener('DOMContentLoaded', toggleType);
 </script>
 {% endblock %}

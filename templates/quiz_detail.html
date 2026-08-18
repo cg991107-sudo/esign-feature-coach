@@ -21,13 +21,23 @@
     <div class="mb-2">
       <span class="badge {% if q.status=='active' %}bg-primary{% else %}bg-secondary{% endif %}">{% if q.status=='active' %}进行中{% else %}已关闭{% endif %}</span>
       {% if q.feature_name %}<span class="badge bg-light text-dark border">{{q.feature_name}}</span>{% endif %}
-      <span class="badge bg-info text-dark">AI自动判分</span>
+      <span class="badge bg-info text-dark">{% if q.quiz_type=='multi' %}多选题{% else %}问答题{% endif %}</span>
       <span class="badge bg-light text-dark border">出题人：{{q.sfr_name}}</span>
       {% if q.deadline %}<small class="text-muted ms-2">截止：{{q.deadline}}</small>{% endif %}
     </div>
     <h5 class="fw-bold mt-2"><i class="bi bi-question-circle text-primary"></i> {{q.question}}</h5>
+    {% if options_list %}
+    <div class="mt-2 p-2 bg-light rounded">
+      {% for idx, lett, opt in options_list %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="choice" value="{{idx}}" id="qd-opt{{idx}}" {% if u and u.role in ('sfr','admin') %}disabled{% endif %}>
+        <label class="form-check-label" for="qd-opt{{idx}}"><b>{{lett}}.</b> {{opt}}</label>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if q.answer_hint and u and u.role in ('sfr','admin') %}
-    <p class="small text-muted mt-2 p-2 bg-light rounded"><i class="bi bi-lightbulb"></i> <strong>参考答案（SFR可见）：</strong>{{q.answer_hint}}</p>
+    <p class="small text-muted mt-2 p-2 bg-light rounded"><i class="bi bi-lightbulb"></i> <strong>参考答案（SFR可见）：</strong>{% if q.quiz_type=='multi' %}{{q.correct_answer or '（未设置）'}}{% else %}{{q.answer_hint}}{% endif %}</p>
     {% endif %}
   </div>
 </div>
@@ -36,6 +46,20 @@
 <div class="card mb-3 border-success">
   <div class="card-body">
     <h6 class="fw-bold"><i class="bi bi-lightning-fill text-success"></i> 我要抢答</h6>
+    {% if options_list %}
+    <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}">
+      <div class="bg-light border rounded p-2">
+        {% for idx, lett, opt in options_list %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="choice" value="{{idx}}" id="qb-opt{{idx}}">
+          <label class="form-check-label" for="qb-opt{{idx}}"><b>{{lett}}.</b> {{opt}}</label>
+        </div>
+        {% endfor %}
+      </div>
+      <small class="text-muted d-block mt-2">多选：勾选所有正确选项后提交，系统按正确答案比对自动判分，每题仅一次，30分钟内有效。</small>
+      <button class="btn btn-success mt-2"><i class="bi bi-send"></i> 提交回答</button>
+    </form>
+    {% else %}
     <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}">
       <div class="input-group">
         <input type="text" name="content" class="form-control" placeholder="输入你的回答..." required>
@@ -43,6 +67,7 @@
       </div>
       <small class="text-muted">每题仅能抢答一次，提交后由 AI 自动判分，发布后 30 分钟内有效。</small>
     </form>
+    {% endif %}
   </div>
 </div>
 {% endif %}
@@ -111,7 +136,11 @@
 
 <script>
 function copyQuiz(){
-  var text='❓ 【抢答考核】\n\n{{q.question}}\n\n📌 规则：第一个答对的商务+1分\n🙋 在群里直接回复你的答案！';
+  var typ = {% if q.quiz_type=="multi" %}'多选'{% else %}'问答'{% endif %};
+  var optsTxt = '';
+  {% if options_list %}{% for idx,lett,opt in options_list %}optsTxt += {{lett}} + {{('.' + ' ')|tojson}} + {{opt|tojson}} + '\\n';{% endfor %}{% endif %}
+  var hasOpts = {% if options_list %}true{% else %}false{% endif %};
+  var text = '❓ 【抢答考核·' + typ + '题】\\n\\n' + {{ q.question|tojson }} + (optsTxt ? '\\n'+optsTxt : '') + '\\n📌 规则：第一个答对的商务+1分\\n🙋 在群里直接回复答案' + (hasOpts ? '(选项答案如 AC)！' : '！');
   try{navigator.clipboard.writeText(text).then(function(){alert('已复制！粘贴到群里开始抢答')})}catch(e){
     var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
     document.execCommand('copy');document.body.removeChild(ta);alert('已复制！粘贴到群里开始抢答');

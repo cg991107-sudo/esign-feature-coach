@@ -101,6 +101,9 @@ CREATE TABLE IF NOT EXISTS quizzes (
     duration_min INTEGER DEFAULT 30,
     auto_generated INTEGER DEFAULT 0,
     judge_mode TEXT DEFAULT 'manual',
+    quiz_type TEXT DEFAULT 'qa',
+    options TEXT,
+    correct_answer TEXT,
     FOREIGN KEY (feature_id) REFERENCES features(id),
     FOREIGN KEY (sfr_id) REFERENCES users(id)
 );
@@ -166,6 +169,9 @@ CREATE TABLE IF NOT EXISTS quizzes (
     duration_min INTEGER DEFAULT 30,
     auto_generated INTEGER DEFAULT 0,
     judge_mode TEXT DEFAULT 'manual',
+    quiz_type TEXT DEFAULT 'qa',
+    options TEXT,
+    correct_answer TEXT,
     FOREIGN KEY (feature_id) REFERENCES features(id),
     FOREIGN KEY (sfr_id) REFERENCES users(id)
 );
@@ -297,6 +303,9 @@ def migrate_db():
                 ("duration_min", "INTEGER DEFAULT 30"),
                 ("auto_generated", "INTEGER DEFAULT 0"),
                 ("judge_mode", "TEXT DEFAULT 'manual'"),
+                ("quiz_type", "TEXT DEFAULT 'qa'"),
+                ("options", "TEXT"),
+                ("correct_answer", "TEXT"),
             ]:
                 if col not in q_cols:
                     try:
@@ -322,6 +331,9 @@ def migrate_db():
                 ("duration_min", "INTEGER DEFAULT 30"),
                 ("auto_generated", "INTEGER DEFAULT 0"),
                 ("judge_mode", "TEXT DEFAULT 'manual'"),
+                ("quiz_type", "TEXT DEFAULT 'qa'"),
+                ("options", "TEXT"),
+                ("correct_answer", "TEXT"),
             ]:
                 if col not in q_cols:
                     try:
@@ -864,6 +876,11 @@ def toggle_learn(fid):
 
 # ---------- 路由：考核抢答 ----------
 
+def quiz_options_list(q):
+    """将 quizzes.options 字段解析为 [(下标, 字母, 选项文本), ...]"""
+    opts = [o for o in (q["options"] or "").split("|||") if o]
+    return [(i, chr(ord("A") + i), o) for i, o in enumerate(opts)]
+
 @app.route("/quiz")
 @require_login
 def quiz_page():
@@ -886,6 +903,7 @@ def quiz_page():
             except Exception:
                 pass
         d["deadline_ts"] = dl_ts
+        d["options_list"] = quiz_options_list(r) if (r["quiz_type"] or "qa") == "multi" else []
         quizzes.append(d)
     # 商务待答题
     my_answers = {}
@@ -900,6 +918,7 @@ def quiz_page():
 @require_role("sfr", "admin")
 def api_generate_quiz():
     fid = request.args.get("feature_id", type=int)
+    qtype = request.args.get("type", "multi")
     db = get_db()
     f = db.execute("SELECT name,scenario,value_point FROM features WHERE id=?", (fid,)).fetchone()
     if not f:
@@ -908,11 +927,18 @@ def api_generate_quiz():
         return jsonify({"error": "该功能尚未填写场景/价值，无法生成考题"}), 400
     try:
         from ai_helper import ai_generate_quiz
-        res = ai_generate_quiz(f["name"], f["scenario"], f["value_point"])
+        res = ai_generate_quiz(f["name"], f["scenario"], f["value_point"], qtype=qtype)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     if not res or not res.get("question"):
         return jsonify({"error": "生成失败，请手动填写"}), 500
+    if qtype == "multi":
+        return jsonify({
+            "question": res["question"],
+            "reference": res.get("reference", ""),
+            "options": res.get("options", []),
+            "correct_answer": res.get("correct_answer", ""),
+        })
     return jsonify({"question": res["question"], "reference": res.get("reference", "")})
 
 
@@ -970,24 +996,63 @@ def quiz_create():
         feature_id = request.form.get("feature_id", type=int)
         question = request.form.get("question", "").strip()
         answer_hint = request.form.get("answer_hint", "").strip()
+        quiz_type = request.form.get("quiz_type", "qa").strip() or "qa"
         if not feature_id:
             flash("请选择关联功能", "danger")
             return redirect(url_for("quiz_create"))
         if not question:
             flash("考题不能为空", "danger")
             return redirect(url_for("quiz_create"))
+        # 收集多选题选项与正确答案
+        options_text, correct_answer = None, None
+        if quiz_type == "multi":
+            opts = []
+            for i in range(1, 5):
+                o = request.form.get(f"opt{i}", "").strip()
+                if o:
+                    opts.append(o)
+            ca_raw = request.form.get("correct_answer", "").strip().upper()
+            # 标准化："A,C" / "AC" / "A C" / "1,2" 统一为字母
+            ca_letters = []
+            for token in re.split(r"[\s,，;；、]+", ca_raw):
+                token = token.strip().upper()
+                if not token:
+                    continue
+                if token.isalpha():
+                    ca_letters.append(token)
+                elif token.isdigit():
+                    idx = int(token) - 1
+                    if 0 <= idx < 4:
+                        ca_letters.append(chr(ord("A") + idx))
+            if len(opts) < 2:
+                flash("多选题至少需要 2 个选项", "danger")
+                return redirect(url_for("quiz_create"))
+            if not ca_letters:
+                flash("请填写多选题的正确答案（如 A,C 或 1,3）", "danger")
+                return redirect(url_for("quiz_create"))
+            # 去重、排序
+            seen = set(); letters = []
+            for c in ca_letters:
+                if c not in seen and c in "ABCD":
+                    seen.add(c); letters.append(c)
+            letters.sort()
+            options_text = "|||".join(opts)
+            correct_answer = "".join(letters)
         u = current_user()
         now = datetime.now()
         duration = 30
         deadline = now + timedelta(minutes=duration)
         db.execute("""INSERT INTO quizzes(feature_id,question,answer_hint,sfr_id,status,
-                                    published_at,deadline,duration_min,auto_generated,judge_mode)
-                      VALUES(?,?,?,?,'active',?,?,?,1,'ai')""",
+                                    published_at,deadline,duration_min,auto_generated,judge_mode,
+                                    quiz_type,options,correct_answer)
+                      VALUES(?,?,?,?,'active',?,?,?,1,'ai',?,?,?)""",
                    (feature_id, question, answer_hint, u["id"],
                     now.strftime("%Y-%m-%d %H:%M:%S"),
-                    deadline.strftime("%Y-%m-%d %H:%M:%S"), duration))
+                    deadline.strftime("%Y-%m-%d %H:%M:%S"), duration,
+                    quiz_type, options_text, correct_answer))
         db.commit()
-        flash("考题已发布（AI自动判分，30分钟内可抢答）", "success")
+        typ_label = "多选题" if quiz_type == "multi" else "问答题"
+        flash(f"已发布 {typ_label}（AI自动判分，30分钟内可抢答）", "success")
         return redirect(url_for("quiz_page"))
     features = db.execute(
         "SELECT * FROM features WHERE value_point IS NOT NULL AND value_point!='' ORDER BY name").fetchall()
@@ -998,10 +1063,6 @@ def quiz_create():
 @require_role("business", "admin")
 def quiz_answer(qid):
     u = current_user()
-    content = request.form.get("content", "").strip()
-    if not content:
-        flash("回答不能为空", "danger")
-        return redirect(url_for("quiz_page"))
     db = get_db()
     q = db.execute("SELECT * FROM quizzes WHERE id=?", (qid,)).fetchone()
     if not q or q["status"] != "active":
@@ -1019,6 +1080,58 @@ def quiz_answer(qid):
     exists = db.execute("SELECT id FROM answers WHERE quiz_id=? AND user_id=?", (qid, u["id"])).fetchone()
     if exists:
         flash("你已经回答过这道题了", "warning")
+        return redirect(url_for("quiz_page"))
+
+    quiz_type = q["quiz_type"] or "qa"
+    # ---------- 多选题：勾选选项作答 ----------
+    if quiz_type == "multi":
+        selected = request.form.getlist("choice")   # 值形如 "0"、"1"，对应选项下标
+        options = [o for o in (q["options"] or "").split("|||") if o]
+        if not selected:
+            flash("请至少选择一个选项", "danger")
+            return redirect(url_for("quiz_page"))
+        # 下标 → 字母 A/B/C/D
+        letters = []
+        for s in selected:
+            if s.isdigit() and int(s) < len(options):
+                letters.append(chr(ord("A") + int(s)))
+        letters = sorted(set(letters))
+        user_letters = "".join(letters)
+        # 构建展示文本（如 "A.xxx / C.yyy"）
+        display_parts = []
+        for s in sorted(set(selected), key=lambda x: int(x) if x.isdigit() else 0):
+            if s.isdigit() and int(s) < len(options):
+                idx = int(s)
+                display_parts.append(f"{chr(ord('A')+idx)}. {options[idx]}")
+        content = " / ".join(display_parts) if display_parts else user_letters
+        db.execute("INSERT INTO answers(quiz_id,user_id,content) VALUES(?,?,?)", (qid, u["id"], content))
+        db.commit()
+        # 标准答案比对：选中字母集合 == 正确答案集合
+        correct_letters = sorted(set(q["correct_answer"] or ""))
+        correct = 1 if sorted(set(user_letters)) == sorted(set(''.join(correct_letters) or '')) else 0
+        reason = f"本题为多选题，正确答案为 {''.join(sorted(set(q['correct_answer'] or '')))}，你选择了 {user_letters or '无'}"
+        if correct == 0 and (not user_letters):
+            reason += "（未选择任何选项）"
+        db.execute("""UPDATE answers SET is_correct=?, judge_reason=?, auto_judged=1
+                      WHERE quiz_id=? AND user_id=?""",
+                   (correct, reason, qid, u["id"]))
+        db.commit()
+        if correct:
+            flash("✅ 回答正确，+1分！", "success")
+        else:
+            ca_text = "".join(sorted(set(q["correct_answer"] or "")))
+            opts_text = "；".join(f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q)) if q["options"] else ""
+            db.execute("""UPDATE answers SET correct_answer=?, wrong_summary=?
+                          WHERE quiz_id=? AND user_id=?""",
+                       (ca_text, f"正确答案：{opts_text}", qid, u["id"]))
+            db.commit()
+            flash(f"❌ 回答不正确。正确答案是 {ca_text}，可在详情页查看。", "info")
+        return redirect(url_for("quiz_page"))
+
+    # ---------- 问答（原有逻辑） ----------
+    content = request.form.get("content", "").strip()
+    if not content:
+        flash("回答不能为空", "danger")
         return redirect(url_for("quiz_page"))
     db.execute("INSERT INTO answers(quiz_id,user_id,content) VALUES(?,?,?)", (qid, u["id"], content))
     db.commit()
@@ -1096,7 +1209,8 @@ def quiz_detail(qid):
     return render_template("quiz_detail.html", q=q, answers=answers,
                            u=u, now_ts=int(datetime.now().timestamp()),
                            deadline_ts=deadline_ts, show_others=show_others,
-                           my_answered=my_answered)
+                           my_answered=my_answered,
+                           options_list=quiz_options_list(q) if (q["quiz_type"] or "qa") == "multi" else [])
 
 
 @app.route("/quiz/<int:qid>/judge/<int:aid>", methods=["POST"])

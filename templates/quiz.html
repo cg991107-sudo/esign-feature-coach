@@ -21,7 +21,7 @@
           {% if q.status=='active' %}进行中{% else %}已关闭{% endif %}
         </span>
         {% if q.feature_name %}<span class="badge bg-light text-dark border ms-1">{{q.feature_name}}</span>{% endif %}
-        <span class="badge bg-info text-dark ms-1">AI自动判分</span>
+        <span class="badge bg-info text-dark ms-1">{% if q.quiz_type=='multi' %}多选题{% else %}问答题{% endif %}</span>
         {% if q.status=='active' and q.deadline_ts %}
         <span class="badge bg-warning text-dark ms-1 countdown" data-deadline="{{q.deadline_ts}}">--</span>
         {% endif %}
@@ -51,12 +51,27 @@
           {% else %}<span class="badge bg-warning text-dark"><i class="bi bi-hourglass"></i> 待判定</span>{% endif %}
         </div>
       {% elif q.status == 'active' %}
+        {% if q.options_list %}
+        <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}" class="mt-2">
+          <div class="bg-light border rounded p-2">
+            {% for idx, lett, opt in q.options_list %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="choice" value="{{idx}}" id="opt{{q.id}}-{{idx}}">
+              <label class="form-check-label" for="opt{{q.id}}-{{idx}}"><b>{{lett}}.</b> {{opt}}</label>
+            </div>
+            {% endfor %}
+            <div class="mt-2"><small class="text-muted">多选：勾选所有正确选项后提交</small></div>
+          </div>
+          <button class="btn btn-success mt-2"><i class="bi bi-lightning-fill"></i> 我要抢答</button>
+        </form>
+        {% else %}
         <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}" class="mt-2">
           <div class="input-group">
             <input type="text" name="content" class="form-control" placeholder="输入你的回答..." required>
             <button class="btn btn-success"><i class="bi bi-lightning-fill"></i> 我要抢答</button>
           </div>
         </form>
+        {% endif %}
       {% endif %}
     {% endif %}
 

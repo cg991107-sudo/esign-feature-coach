@@ -227,8 +227,70 @@ def ai_explain_wrong(question, reference, user_answer, judge_reason=""):
     return {"correct_answer": "", "summary": ""}
 
 
-def ai_generate_quiz(feature_name, scenario, value_point):
-    """根据功能的场景与价值，生成一道抢答题 + 参考答案要点。"""
+def ai_generate_quiz(feature_name, scenario, value_point, qtype="multi"):
+    """根据功能的场景与价值，生成一道抢答题 + 参考答案要点。
+    qtype='multi' 生成多选题（4 选项 + 正确答案）；qtype='qa' 生成开放问答题。
+    """
+    if qtype == "qa":
+        return _generate_qa(feature_name, scenario, value_point)
+    return _generate_multi(feature_name, scenario, value_point)
+
+
+def _generate_multi(feature_name, scenario, value_point):
+    system = (
+        "你是电子签名/电子合同行业的资深售前专家。"
+        "根据用户提供的功能使用场景与价值点，生成一道用于考核商务的多选题，"
+        "考察商务对该功能『在什么场景使用』及『带来什么价值』的理解。"
+    )
+    user = (
+        f"功能名称：{feature_name}\n"
+        f"使用场景：{scenario or '（未填写）'}\n"
+        f"价值点：{value_point or '（未填写）'}\n\n"
+        "请生成一道多选题并输出 JSON：\n"
+        '{"question":"考察场景和/或价值的多选题干（结尾可标注：多选）",'
+        '"options":["选项A文本","选项B文本","选项C文本","选项D文本"],'
+        '"correct_answer":"正确答案字母，如AC或BD（1-4个大写字母）",'
+        '"reference":"简短判分要点说明"}\n'
+        "要求：\n"
+        "- 4 个选项，其中 1-3 个正确\n"
+        "- 正确项必须紧扣题目对应的场景/价值点\n"
+        "只输出 JSON。"
+    )
+    raw = _llm_chat(system, user)
+    if raw:
+        try:
+            d = json.loads(raw)
+            q = d.get("question", "").strip()
+            opts = [str(o).strip() for o in (d.get("options") or []) if str(o).strip()]
+            ca = "".join(c for c in (d.get("correct_answer") or "").upper() if c in "ABCD")
+            if q and len(opts) >= 2:
+                return {
+                    "question": q,
+                    "reference": d.get("reference", "").strip(),
+                    "options": opts[:4],
+                    "correct_answer": ca,
+                }
+        except Exception:
+            pass
+    return _fallback_multi(feature_name, scenario, value_point)
+
+
+def _fallback_multi(name, scenario, value_point):
+    opts = [
+        f"该功能主要服务于需要{name}的客户场景",
+        f"该功能能显著提升客户签署效率、降低成本",
+        "该功能完全无法用于在线签署场景（错误项）",
+        f"{name}与{scenario or '客户场景'}无关（错误项）",
+    ]
+    return {
+        "question": f"关于「{name}」功能，下列说法正确的有（多选）？",
+        "reference": f"紧扣 {value_point or scenario or '该功能的价值'}",
+        "options": opts,
+        "correct_answer": "AB",
+    }
+
+
+def _generate_qa(feature_name, scenario, value_point):
     system = (
         "你是电子签名/电子合同行业的资深售前专家。"
         "根据用户提供的功能使用场景与价值点，生成一道用于考核商务的抢答题，"
