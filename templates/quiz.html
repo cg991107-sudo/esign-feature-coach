@@ -4,12 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h3 class="fw-bold mb-0"><i class="bi bi-patch-question text-primary"></i> 抢答考核</h3>
   {% if u and u.role in ('sfr','admin') %}
-  <div class="d-flex gap-2">
-    <form method="post" action="{{url_for('quiz_auto_generate')}}" onsubmit="return confirm('系统将为所有已填写场景/价值、且尚无进行中题目的功能，自动生成一道多选题并发布。确认？')">
-      <button class="btn btn-info"><i class="bi bi-robot"></i> 系统自动出题（全量）</button>
-    </form>
-    <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
-  </div>
+  <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
   {% endif %}
 </div>
 

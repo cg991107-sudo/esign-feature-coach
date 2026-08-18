@@ -238,53 +238,94 @@ def ai_generate_quiz(feature_name, scenario, value_point, qtype="multi"):
 
 def _generate_multi(feature_name, scenario, value_point):
     system = (
-        "你是电子签名/电子合同行业的资深售前专家。"
-        "根据用户提供的功能使用场景与价值点，生成一道用于考核商务的多选题，"
-        "考察商务对该功能『在什么场景使用』及『带来什么价值』的理解。"
+        "你是 e签宝 电子签名/电子合同行业的资深售前专家，正在帮 SFR 出考核真题。\n"
+        "你的目标是出一道**考察具体价值点**、而不是空泛的多选题：\n"
+        "1. 题目必须点名「功能名」，并聚焦该功能为客户带来的**具体价值**（如某场景效率提升、某合规能力）。\n"
+        "2. 选项必须是从功能价值点衍生的**具体陈述**，不能是「该功能很好/很高效」这种空话。\n"
+        "3. 正确项 = 该功能真实具备、可从「使用场景/价值点」中直接支撑的陈述。\n"
+        "4. 干扰项 = 与该功能**似是而非/张冠李戴**的陈述（把别的功能的能力或该功能不具备的能力写成选项），要能迷惑但明显可对应当前功能内容排除。\n"
+        "5. 设 4 个选项，其中**恰好 2 个正确**（correction_answer 含 2 个字母）。\n"
+        "6. reference 用一句话点出 2 个正确项依据的价值点。"
     )
     user = (
         f"功能名称：{feature_name}\n"
         f"使用场景：{scenario or '（未填写）'}\n"
         f"价值点：{value_point or '（未填写）'}\n\n"
-        "请生成一道多选题并输出 JSON：\n"
-        '{"question":"考察场景和/或价值的多选题干（结尾可标注：多选）",'
-        '"options":["选项A文本","选项B文本","选项C文本","选项D文本"],'
-        '"correct_answer":"正确答案字母，如AC或BD（1-4个大写字母）",'
-        '"reference":"简短判分要点说明"}\n'
-        "要求：\n"
-        "- 4 个选项，其中 1-3 个正确\n"
-        "- 正确项必须紧扣题目对应的场景/价值点\n"
-        "只输出 JSON。"
+        "请根据以上『使用场景、价值点』，生成 1 道多选题，严格输出 JSON：\n"
+        '{"question":"含功能名、考察具体价值的题干（多选）",'
+        '"options":["A","B","C","D"],'
+        '"correct_answer":"恰好2个大写字母，如 AC",'
+        '"reference":"正确2项各自对应的价值点理由"}\n'
+        "只输出 JSON，不要额外文字。"
     )
     raw = _llm_chat(system, user)
     if raw:
         try:
             d = json.loads(raw)
             q = d.get("question", "").strip()
-            opts = [str(o).strip() for o in (d.get("options") or []) if str(o).strip()]
+            opts = [str(o).strip() for o in (d.get("options") or []) if str(o).strip()][:4]
             ca = "".join(c for c in (d.get("correct_answer") or "").upper() if c in "ABCD")
-            if q and len(opts) >= 2:
-                return {
-                    "question": q,
-                    "reference": d.get("reference", "").strip(),
-                    "options": opts[:4],
-                    "correct_answer": ca,
-                }
+            # 校验：至少2选项、答案至少1个且不越界、答案字母必须对应已有选项
+            if q and len(opts) >= 2 and ca and all(0 <= ord(c) - 65 < len(opts) for c in ca):
+                # 去掉重复字母、强制按选项长度裁剪
+                seen = set(); ca2 = ""
+                for c in ca:
+                    if c not in seen and 0 <= ord(c) - 65 < len(opts):
+                        seen.add(c); ca2 += c
+                if ca2:
+                    return {
+                        "question": q,
+                        "reference": d.get("reference", "").strip(),
+                        "options": opts,
+                        "correct_answer": "".join(sorted(ca2)),
+                    }
         except Exception:
             pass
     return _fallback_multi(feature_name, scenario, value_point)
 
 
+def _split_value_points(value_point):
+    """把价值点拆成若干独立要点。按序号/换行/句号切分，合并被冒号分隔的续行，剔除过短碎片。"""
+    if not value_point:
+        return []
+    # 先按换行、句号、分号、序号切成候选句
+    text = value_point
+    # 统一把 "1." "1、" "①②" 等序号转成分隔
+    text = re.sub(r"[\n\r]+", "\n", text)
+    # 用正则切分：行首序号 或 中文句号/分号
+    raw = re.split(r"(?:\n|(?<=[。；;])\s*)", text)
+    out = []
+    for r in raw:
+        r = re.sub(r"^\s*[\d一二三四五六七八九十①-⑩]+[.、\))]?\s*", "", r).strip()
+        if not r:
+            continue
+        # 若分行以冒号/顿号/“/”结尾，说明是列表标题，跳过
+        if re.search(r"[:：、，,]$", r):
+            continue
+        r = re.sub(r"\s{2,}", " ", r)
+        if len(r) >= 6 and r not in out:
+            out.append(r)
+    # 若没拆出，回退为整段前两个逗号句
+    if not out:
+        sents = [s.strip() for s in re.split(r"[。；;]", value_point) if len(s.strip()) >= 6]
+        out = sents
+    return out
+
+
 def _fallback_multi(name, scenario, value_point):
-    opts = [
-        f"该功能主要服务于需要{name}的客户场景",
-        f"该功能能显著提升客户签署效率、降低成本",
-        "该功能完全无法用于在线签署场景（错误项）",
-        f"{name}与{scenario or '客户场景'}无关（错误项）",
-    ]
+    """无 AI key 时的规则多选：从价值点生成 2 个真实价值正确项 + 2 个明显错误项。"""
+    points = _split_value_points(value_point)
+    # 兜底：正确项把换行/多余空白规整为空格，确保选项整洁
+    points = [re.sub(r"\s+", " ", p).strip() for p in points]
+    c1 = points[0][:40] if points else "提升签署效率"
+    c2 = (points[1] if len(points) > 1 else (scenario or "降低用纸邮寄成本"))[:40]
+    d1 = f"「{name}」主要面向线下纸质流程，无法接入线上（错误）"
+    d2 = f"「{name}」仅适用于少量文件，不具备规模化能力（错误）"
+    opts = [c1, c2, d1, d2]
+    c_ref = ";".join([c1, c2])
     return {
-        "question": f"关于「{name}」功能，下列说法正确的有（多选）？",
-        "reference": f"紧扣 {value_point or scenario or '该功能的价值'}",
+        "question": f"关于「{name}」功能，以下哪些说法正确体现了它的价值？（多选）",
+        "reference": f"正确价值点：{c_ref}",
         "options": opts,
         "correct_answer": "AB",
     }
@@ -292,18 +333,19 @@ def _fallback_multi(name, scenario, value_point):
 
 def _generate_qa(feature_name, scenario, value_point):
     system = (
-        "你是电子签名/电子合同行业的资深售前专家。"
-        "根据用户提供的功能使用场景与价值点，生成一道用于考核商务的抢答题，"
-        "题目应考察商务对该功能『在什么场景使用』及『带来什么价值』的理解，"
-        "并给出可作为判分依据的参考答案要点。"
+        "你是 e签宝 电子签名/电子合同行业的资深售前专家，正在帮 SFR 出考核真题。\n"
+        "根据功能的使用场景与价值点，出一道能**考察商务是否真正理解该功能**的开放问答题：\n"
+        "1. 题目点名功能名，引导商务讲出：该功能解决了什么客户场景/痛点 + 能带来哪些可量化的核心价值。\n"
+        "2. 不要出泛泛的『说说这个功能』，要给出具体切入角度。\n"
+        "3. reference 给出 3 个独立的关键得分点（对应具体价值/场景），SFR 可据此判分。"
     )
     user = (
         f"功能名称：{feature_name}\n"
         f"使用场景：{scenario or '（未填写）'}\n"
         f"价值点：{value_point or '（未填写）'}\n\n"
-        "请生成 JSON：\n"
-        '{"question":"一道考察场景+价值的开放题",'
-        '"reference":"2-4个关键得分点，用逗号分隔，判分时按覆盖率打分"}\n'
+        "请严格输出 JSON：\n"
+        '{"question":"考察具体场景+价值的问题",'
+        '"reference":"3个关键得分点，用分号分隔"}\n'
         "只输出 JSON。"
     )
     raw = _llm_chat(system, user)
@@ -319,11 +361,14 @@ def _generate_qa(feature_name, scenario, value_point):
 
 
 def _fallback_generate(name, scenario, value_point):
+    """无 AI key 时的规则问答题：从价值点提炼出具体提问角度。"""
+    points = _split_value_points(value_point)
+    angle = points[0] if points else (scenario or "客户场景")
     q = (
-        f"关于「{name}」功能：请说明它主要解决客户的什么场景或痛点，"
-        f"以及能给客户带来哪些核心价值？"
+        f"关于「{name}」功能：请结合它的实际使用场景，说明它主要帮客户解决什么痛点，"
+        f"以及它带来的核心价值里最关键的一点（如：{angle}）具体如何体现？"
     )
-    ref = value_point or scenario or "该功能的使用场景与价值"
+    ref = "；".join(points[:3]) if points else (value_point or scenario or "该功能的使用场景与价值")
     return {"question": q, "reference": ref}
 
 

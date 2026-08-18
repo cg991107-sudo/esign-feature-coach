@@ -1130,7 +1130,9 @@ def quiz_create():
         return redirect(url_for("quiz_page"))
     features = db.execute(
         "SELECT * FROM features WHERE value_point IS NOT NULL AND value_point!='' ORDER BY name").fetchall()
-    return render_template("quiz_create.html", features=features, u=current_user())
+    preview = {f["id"]: {"name": f["name"], "scenario": (f["scenario"] or "")[:120],
+                         "value": (f["value_point"] or "")[:120]} for f in features}
+    return render_template("quiz_create.html", features=features, u=current_user(), preview=json.dumps(preview, ensure_ascii=False))
 
 
 @app.route("/quiz/<int:qid>/answer", methods=["POST"])

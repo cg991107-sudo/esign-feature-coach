@@ -6,7 +6,7 @@
   <a href="{{url_for('quiz_page')}}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回</a>
 </div>
 
-<div class="alert alert-info"><i class="bi bi-robot"></i> 选择已填写场景/价值的功能，选择「<b>多选题</b>」或「问答题」题型，点击「<b>✨ AI 生成考题</b>」自动生成。发布后<strong>30 分钟内</strong>商务可抢答，<strong>超时自动截止</strong>；<strong>多选题按选项比对自动判分，问答题由 AI 判断</strong>。</div>
+<div class="alert alert-info"><i class="bi bi-robot"></i> 选好下面「关联功能」后，点击「<b>系统自动出题</b>」即可针对<strong>该功能</strong>自动生成一题（依据功能清单里它的「使用场景 + 核心价值」出题，质量较高，可再修改）。支持<strong>多选题</strong>与<strong>问答题</strong>。发布后<strong>30 分钟内</strong>商务可抢答，超时自动截止。</div>
 
 <div class="row">
   <div class="col-lg-8">
@@ -22,9 +22,10 @@
               {% endfor %}
             </select>
             <div class="mt-2">
-              <button type="button" id="genBtn" class="btn btn-warning btn-sm" onclick="generateQuiz()"><i class="bi bi-robot"></i> ✨ AI 生成考题</button>
+              <button type="button" id="genBtn" class="btn btn-warning" onclick="generateQuiz()"><i class="bi bi-robot"></i> ✨ 系统自动出题（针对此功能）</button>
             </div>
-            <small class="text-muted">基于该功能的场景 + 价值点自动生成题目与参考答案</small>
+            <div id="featPreview" class="small text-muted mt-2 p-2 bg-light rounded d-none"></div>
+            <small class="text-muted">基于该功能的「使用场景 + 核心价值」自动生成题目、选项与参考答案，生成后可再修改</small>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">考题类型 <span class="text-danger">*</span></label>
@@ -64,19 +65,19 @@
     <div class="card">
       <div class="card-header"><i class="bi bi-lightbulb"></i> 出题技巧</div>
       <div class="card-body small">
-        <p class="fw-bold text-primary">AI 帮你想题</p>
+        <p class="fw-bold text-primary">系统自动出题（单个功能）</p>
         <ul>
-          <li>选好功能点「AI 生成」，免去手动想题</li>
-          <li>生成结果可直接修改，更符合你的考核重点</li>
-          <li>参考答案越具体，AI 判分越准</li>
+          <li>选一个功能点「系统自动出题」，系统按它的场景+价值生成一题</li>
+          <li>生成结果可修改选项、答案，更贴合你的考核重点</li>
+          <li>多选题按选项比对自动判分，问答题由 AI 判分</li>
         </ul>
         <hr>
         <p class="fw-bold text-primary">流程</p>
         <ol>
-          <li>选功能 → AI 生成</li>
-          <li>改题 → 发布</li>
+          <li>选功能 → 系统自动出题</li>
+          <li>核对/改题 → 发布</li>
           <li>商务 30 分钟内抢答</li>
-          <li>系统 AI 自动判分 + 加分</li>
+          <li>系统自动判分 + 加分（多选按答案命中分）</li>
           <li>SFR 可改判</li>
         </ol>
       </div>
@@ -85,6 +86,14 @@
 </div>
 
 <script>
+var PREVIEW = {{ preview|safe }};
+function showPreview(){
+  var fid = document.getElementById('feature_id').value;
+  var box = document.getElementById('featPreview');
+  var p = PREVIEW && PREVIEW[fid];
+  if(p){ box.classList.remove('d-none'); box.innerHTML = '<b>['+p.name+']</b><br>📋 场景：'+p.scenario+'<br>💎 价值：'+p.value; }
+  else { box.classList.add('d-none'); box.innerHTML=''; }
+}
 function toggleType(){
   var qt = document.getElementById('quiz_type').value;
   document.getElementById('multiBlock').style.display = (qt==='multi') ? '' : 'none';
@@ -156,6 +165,7 @@ function flash(msg, type){
   document.querySelector('form').prepend(box);
   setTimeout(function(){ box.remove(); }, 2500);
 }
-document.addEventListener('DOMContentLoaded', toggleType);
+document.addEventListener('DOMContentLoaded', function(){ toggleType(); showPreview(); });
+document.getElementById('feature_id').addEventListener('change', showPreview);
 </script>
 {% endblock %}
