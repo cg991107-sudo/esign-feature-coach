@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import re
+import random
 import urllib.request
 import urllib.error
 
@@ -313,21 +314,54 @@ def _split_value_points(value_point):
 
 
 def _fallback_multi(name, scenario, value_point):
-    """无 AI key 时的规则多选：从价值点生成 2 个真实价值正确项 + 2 个明显错误项。"""
-    points = _split_value_points(value_point)
-    # 兜底：正确项把换行/多余空白规整为空格，确保选项整洁
-    points = [re.sub(r"\s+", " ", p).strip() for p in points]
-    c1 = points[0][:40] if points else "提升签署效率"
-    c2 = (points[1] if len(points) > 1 else (scenario or "降低用纸邮寄成本"))[:40]
-    d1 = f"「{name}」主要面向线下纸质流程，无法接入线上（错误）"
-    d2 = f"「{name}」仅适用于少量文件，不具备规模化能力（错误）"
-    opts = [c1, c2, d1, d2]
-    c_ref = ";".join([c1, c2])
+    """无 AI key 时的规则多选。为降低“每次都一样”的重复感：
+    - 正确项从价值点拆出的多个真实要点中，按（功能名+时间）种子选取不同组合；
+    - 干扰项从一组“对该功能必然为假、但表述多样”的错误陈述库中随机抽取、轮换；
+    - 所以同一功能连续出题会得到不同的正确项与干扰项组合。"""
+    points = [re.sub(r"\s+", " ", p).strip() for p in _split_value_points(value_point) if re.sub(r"\s+", " ", p).strip()]
+
+    seed = random.SystemRandom().randint(0, 1 << 30)
+    rng = random.Random(seed)
+    # 正确项：只从价值点真实要点里随机选 2 个（不同位置、轮换，避免每次都取前两条）
+    cand = points[:6]
+    if len(cand) < 2:
+        for g in ["提升签署效率", "降低用纸与邮寄成本", "全流程存证、司法采信", "支持跨地域/多人协同"]:
+            if len(cand) < 2 and not any(g in p for p in cand):
+                cand.append(g)
+    rng.shuffle(cand)
+    correct_a = cand[0][:40]
+    correct_b = cand[1][:40]
+    # 若两个正确项重复，补足不同表述
+    if correct_a == correct_b:
+        for g in ["降低用纸与邮寄成本", "全流程存证、司法采信", "签署流程秒级完成"]:
+            if g != correct_a:
+                correct_b = g
+                break
+
+    # 干扰项库（对该功能必然为假的陈述，针对电子签章业务）
+    distract_pool = [
+        f"「{name}」仅支持线下纸质盖章，无法在线完成（与该功能无关）",
+        f"「{name}」不兼容手机端，只能在电脑上使用（错误）",
+        f"「{name}」与实名认证、电子存证等能力完全无关（错误）",
+        f"「{name}」生成的签署文件不具备法律效力，司法不采信（错误）",
+        f"「{name}」需要层层人工审批数天才能走完一份签署（与该功能提效相反）",
+        f"「{name}」仅面向小微企业，大型集团企业无法使用（错误）",
+        f"「{name}」每次签署都必须额外线下邮寄纸质原件（与线上签署相反）",
+        f"「{name}」只能单人独立操作，不支持多人/多部门协同（错误）",
+        f"「{name}」不提供任何存证或审计凭证，无法追溯（错误）",
+        f"「{name}」仅能签署固定格式文本，不支持合同、附件等（错误）",
+    ]
+    rng.shuffle(distract_pool)
+    d1, d2 = distract_pool[0], distract_pool[1]
+
+    opts = [correct_a, correct_b, d1, d2]
+    rng.shuffle(opts)
+    correct = "".join(sorted([chr(65 + opts.index(o)) for o in (correct_a, correct_b)]))
     return {
-        "question": f"关于「{name}」功能，以下哪些说法正确体现了它的价值？（多选）",
-        "reference": f"正确价值点：{c_ref}",
+        "question": f"关于「{name}」功能，以下哪些说法正确体现了它的价值或能力？（多选）",
+        "reference": f"正确：{correct_a}；{correct_b}",
         "options": opts,
-        "correct_answer": "AB",
+        "correct_answer": correct,
     }
 
 
@@ -361,14 +395,25 @@ def _generate_qa(feature_name, scenario, value_point):
 
 
 def _fallback_generate(name, scenario, value_point):
-    """无 AI key 时的规则问答题：从价值点提炼出具体提问角度。"""
-    points = _split_value_points(value_point)
-    angle = points[0] if points else (scenario or "客户场景")
+    """无 AI key 时的规则问答题：从价值点提炼具体提问角度，随机轮换切入面。"""
+    points = [re.sub(r"\s+", " ", p).strip() for p in _split_value_points(value_point)]
+    if not points:
+        points = [re.sub(r"\s+", " ", p).strip() for p in _split_value_points(scenario)][:3]
+    if not points:
+        points = ["客户签署效率", "用纸/邮寄成本", "司法存证效力"]
+    rng = random.Random(random.SystemRandom().randint(0, 1 << 30))
+    ordered = list(points)
+    rng.shuffle(ordered)
+    angles = [
+        f"它主要解决了客户怎样的业务场景或痛点",
+        f"它给客户带来的核心价值主要体现在哪些方面",
+        f"结合使用场景，说明它相比传统方式的关键改进",
+    ]
     q = (
-        f"关于「{name}」功能：请结合它的实际使用场景，说明它主要帮客户解决什么痛点，"
-        f"以及它带来的核心价值里最关键的一点（如：{angle}）具体如何体现？"
+        f"关于「{name}」功能：请结合它的实际使用场景，说明{angles[0]}，"
+        f"并重点讲清它带来的价值（如：{ordered[0][:30]}）具体如何体现？"
     )
-    ref = "；".join(points[:3]) if points else (value_point or scenario or "该功能的使用场景与价值")
+    ref = "；".join(points[:3]) or (value_point or "该功能的使用场景与价值")
     return {"question": q, "reference": ref}
 
 
