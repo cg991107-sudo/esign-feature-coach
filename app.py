@@ -416,20 +416,21 @@ def login_page():
     """登录页：已注册用户填写姓名即可进入，身份由管理员预先设定。"""
     if session.get("uid"):
         return redirect(url_for("index"))
+    u = current_user()
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
         if not name:
             flash("请输入姓名", "danger")
-            return render_template("login.html")
+            return render_template("login.html", u=u)
         db = get_db()
         u = db.execute("SELECT * FROM users WHERE name=?", (name,)).fetchone()
         if not u:
             flash("未找到该用户，请联系管理员创建账号", "danger")
-            return render_template("login.html")
+            return render_template("login.html", u=u)
         session["uid"] = u["id"]
         flash(f"已登录：{u['name']}", "info")
         return redirect(url_for("index"))
-    return render_template("login.html")
+    return render_template("login.html", u=u)
 
 
 @app.route("/logout")
