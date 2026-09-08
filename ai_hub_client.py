@@ -5,6 +5,7 @@ AI-HUB 知识库检索封装：通过 ai-hub CLI 搜索所有有权限的知识�
 """
 import os
 import json
+import re
 import subprocess
 import hashlib
 
@@ -20,6 +21,7 @@ def set_cache_dir(path):
 
 
 def _ensure_cache_dir():
+    global _CACHE_DIR
     if _CACHE_DIR is None:
         _CACHE_DIR = os.path.dirname(os.path.abspath(__file__))
     d = os.path.join(_CACHE_DIR, ".aihub_cache")
@@ -107,22 +109,21 @@ def _parse_search_result(raw_text, kb_name=""):
     while i < len(lines):
         line = lines[i]
 
-        # 检测新文档块
-        if line.startswith("[") and "]" in line and "标题:" in line:
+        # 检测新文档块：行首"[数字]"开头（如 "[1]""[2]"）
+        if re.match(r"^\[\d+\]\s*$", line):
             if current_doc:
                 docs.append(current_doc)
             current_doc = {"kb_name": kb_name}
 
-            # 提取 doc-id
-            for part in line.split():
-                if "文档ID:" in part:
-                    current_doc["doc_id"] = part.replace("文档ID:", "")
-                elif "知识库ID:" in part:
-                    current_doc["kb_id"] = part.replace("知识库ID:", "")
+        # 提取 doc-id（文档ID: xxx 或 知识库ID: xxx）
+        if current_doc is not None and "文档ID:" in line:
+            current_doc["doc_id"] = line.split("文档ID:", 1)[1].strip()
+        if current_doc is not None and "知识库ID:" in line:
+            current_doc["kb_id"] = line.split("知识库ID:", 1)[1].strip()
 
-        # 提取字段
+        # 提取字段（标题、匹配度、内容等）
         for key in ["标题:", "文件名:", "匹配度:", "内容:"]:
-            if key in line:
+            if key in line and current_doc is not None:
                 val = line.split(key, 1)[1].strip()
                 if "匹配度:" in key:
                     try:
