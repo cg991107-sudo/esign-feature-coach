@@ -1418,6 +1418,13 @@ def seed_data():
 
 # ---------- 启动 ----------
 
+# ai-hub 知识库缓存目录（指向数据持久化目录）
+try:
+    from ai_hub_client import set_cache_dir as _set_cache_dir
+    _set_cache_dir(DATA_DIR)
+except Exception:
+    pass  # ai-hub 不可用时静默忽略
+
 _ensure_db()
 
 if __name__ == "__main__":

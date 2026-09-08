@@ -142,18 +142,35 @@ def ai_generate_scenario_value(feature_name, category="", code=""):
 
     返回 {"scenario": str, "value_point": str, "related_products": str}，AI 不可用时返回空字符串。
     关键点：必须结合 e签宝 的具体产品能力，不能只写泛泛的"提升效率/降低成本"。
+    动态产品知识从 ai-hub 知识库检索获取（替换硬编码的 ESIGN_PRODUCT_KNOWLEDGE）。
     """
-    system = (
-        "你是e签宝（中国领先的电子签名平台）的资深产品专家和售前顾问。\n"
-        "你精通电子签章、电子合同、数字证书、实名认证、印章管理、存证出证等产品的业务场景和价值。\n"
-        "下面是 e签宝 的核心产品能力，你在生成场景和价值时必须结合其中具体的能力点，"
-        "不能只写泛泛的“提升效率、降低成本”，而要落到 e签宝 实际能做什么上：\n"
-        f"{ESIGN_PRODUCT_KNOWLEDGE}\n\n"
-        "根据功能名称，为售前团队生成该功能的使用场景描述和价值点提炼，要求：\n"
-        "- 场景：写清楚什么类型客户、什么业务流程、传统方式的具体痛点（如纸质合同邮寄3天、印章乱用难追溯）\n"
-        "- 价值：从效率、成本、合规、协同维度提炼，必须点名 e签宝 的对应产品能力（如“通过微信签+批量签署，10分钟完成原需3天的跨地域签署”）\n"
-        "- related_products：列出该功能最相关的 2-4 个 e签宝 产品能力名称（用顿号分隔）\n"
-        "- 语气：专业但通俗，售前可直接用来跟客户沟通"
+    # 从 ai-hub 知识库检索最新产品上下文（替代硬编码常量）
+    try:
+        from ai_hub_client import fetch_product_context
+        kb_content = fetch_product_context(feature_name, category, code)
+    except Exception as e:
+        kb_content = ""
+
+    if kb_content:
+        system_knowledge = f"""以下是从内部知识库检索到的相关产品内容，请结合这些具体内容来生成场景和价值点，不要编造：
+{kb_content}
+
+如果上述内容不够充分，也可以结合以下 e签宝 核心产品能力：
+"""
+    else:
+        system_knowledge = "以下是 e签宝 的核心产品能力，你在生成场景和价值时必须结合其中具体的能力点，不能只写泛泛的“提升效率、降低成本”，而要落到 e签宝 实际能做什么上：\n"
+
+    system_knowledge += (
+        "1. 实名认证：个人实名（手机号三要素、银行卡四要素、人脸活体）、企业实名（营业执照、对公打款验证、法人授权），是签署前身份可信的基础。\n"
+        "2. 电子签名/电子合同签署：SaaS 网页签署、微信签、短信签、链接签、批量签署、顺序/无序签署、骑缝章、表单签，支持 PC/移动全端。\n"
+        "3. 数字证书：CA 证书签发与托管、国密 SM2 证书、UKey 证书，满足等保/国密合规要求。\n"
+        "4. 电子印章：印章制作与管控、智能印控、用印审批流、印章权限分级，防止乱盖章。\n"
+        "5. 合同管理：合同模板库、在线起草/编辑、合同审批流、合同分类与检索、到期提醒、合同到期自动续签提醒。\n"
+        "6. 存证出证：区块链存证、可信时间戳、原文加密保全、公证处/司法鉴定直连、一键出证，保障司法采信。\n"
+        "7. 智能审核（AI）：合同风险条款 AI 审查、关键信息提取、合规校验。\n"
+        "8. 开放平台/API：与企业 OA、ERP、CRM、HR、业务系统深度集成，支持私有化/混合云部署。\n"
+        "9. 行业方案：政务、金融、人力资源、医疗、房地产、物流、制造等垂直场景模板。\n"
+        "10. 合规资质：符合《电子签名法》、等保三级、国密算法、ISO27001，具备 CA 牌照。"
     )
     user = (
         f"功能名称：{feature_name}\n"
@@ -165,7 +182,7 @@ def ai_generate_scenario_value(feature_name, category="", code=""):
         '"related_products":"2-4个相关 e签宝 产品能力，顿号分隔"}\n'
         "只输出 JSON。"
     )
-    raw = _llm_chat(system, user, max_tokens=800)
+    raw = _llm_chat(system_knowledge, user, max_tokens=800)
     if raw:
         # 去掉可能包裹的 markdown 代码块
         cleaned = raw.strip()
