@@ -149,10 +149,23 @@
 <script>
 function copyQuiz(){
   var typ = {% if q.quiz_type=="multi" %}'多选'{% else %}'问答'{% endif %};
-  var optsTxt = '';
-  {% if options_list %}{% for idx,lett,opt in options_list %}optsTxt += {{lett|tojson}} + {{('.' + ' ')|tojson}} + {{opt|tojson}} + '\\n';{% endfor %}{% endif %}
   var hasOpts = {% if options_list %}true{% else %}false{% endif %};
-  var text = '❓ 【抢答考核·' + typ + '题】\\n\\n' + {{ q.question|tojson }} + (optsTxt ? '\\n'+optsTxt : '') + '\\n📌 规则：第一个答对的商务+1分\\n🙋 在群里直接回复答案' + (hasOpts ? '(选项答案如 AC)！' : '！');
+  var copyLines = [
+    '📣 【抢答考核｜' + typ + '题】',
+    '',
+    '❓ 题目：',
+    {{ q.question|tojson }},
+    {% if options_list %}
+    '',
+    '🔹 选项：',
+    {% for idx,lett,opt in options_list %}{{ (lett ~ '. ' ~ opt)|tojson }},{% endfor %}
+    {% endif %}
+    '',
+    '📝 作答方式：' + (hasOpts ? '请直接回复选项字母（如：AC）' : '请直接回复你的答案'),
+    '📌 答题规则：每人限答1次，发布后30分钟内有效'{% if q.deadline %},
+    '⏰ 截止时间：' + {{ q.deadline|tojson }}{% endif %}
+  ];
+  var text = copyLines.join('\\n');
   function fallbackCopy(){
     var ta=document.createElement('textarea');
     ta.value=text;
