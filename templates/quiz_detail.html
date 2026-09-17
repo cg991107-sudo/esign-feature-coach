@@ -150,12 +150,29 @@
 function copyQuiz(){
   var typ = {% if q.quiz_type=="multi" %}'多选'{% else %}'问答'{% endif %};
   var optsTxt = '';
-  {% if options_list %}{% for idx,lett,opt in options_list %}optsTxt += {{lett}} + {{('.' + ' ')|tojson}} + {{opt|tojson}} + '\\n';{% endfor %}{% endif %}
+  {% if options_list %}{% for idx,lett,opt in options_list %}optsTxt += {{lett|tojson}} + {{('.' + ' ')|tojson}} + {{opt|tojson}} + '\\n';{% endfor %}{% endif %}
   var hasOpts = {% if options_list %}true{% else %}false{% endif %};
   var text = '❓ 【抢答考核·' + typ + '题】\\n\\n' + {{ q.question|tojson }} + (optsTxt ? '\\n'+optsTxt : '') + '\\n📌 规则：第一个答对的商务+1分\\n🙋 在群里直接回复答案' + (hasOpts ? '(选项答案如 AC)！' : '！');
-  try{navigator.clipboard.writeText(text).then(function(){alert('已复制！粘贴到群里开始抢答')})}catch(e){
-    var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
-    document.execCommand('copy');document.body.removeChild(ta);alert('已复制！粘贴到群里开始抢答');
+  function fallbackCopy(){
+    var ta=document.createElement('textarea');
+    ta.value=text;
+    ta.setAttribute('readonly','');
+    ta.style.position='fixed';
+    ta.style.opacity='0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok=false;
+    try{ ok=document.execCommand('copy'); }catch(e){ ok=false; }
+    document.body.removeChild(ta);
+    if(ok){ alert('已复制！粘贴到群里开始抢答'); }
+    else{ alert('复制失败，请手动选择并复制考题内容'); }
+  }
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text)
+      .then(function(){alert('已复制！粘贴到群里开始抢答');})
+      .catch(function(){fallbackCopy();});
+  }else{
+    fallbackCopy();
   }
 }
 (function(){
