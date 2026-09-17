@@ -92,6 +92,12 @@
         <i class="bi bi-list-ul"></i>
         {% if u and u.role=='business' and q.status=='active' %}查看我的回答{% else %}查看全部回答{% endif %}
       </a>
+      {% if u and u.role in ('sfr','admin') %}
+      <button type="button" class="btn btn-sm btn-outline-success ms-2"
+              onclick='copyQuizFromList({{ (q.quiz_type or "qa")|tojson }}, {{ q.question|tojson }}, {{ q.options_list|tojson }}, {{ (q.deadline or "")|tojson }})'>
+        <i class="bi bi-clipboard"></i> 复制考题到群
+      </button>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -102,6 +108,50 @@
 {% endif %}
 
 <script>
+function copyQuizFromList(quizType, question, options, deadline){
+  var isMulti = quizType === 'multi';
+  var lines = [
+    '📣 【抢答考核｜' + (isMulti ? '多选' : '问答') + '题】',
+    '',
+    '❓ 题目：',
+    question
+  ];
+  if(isMulti && options && options.length){
+    lines.push('', '🔹 选项：');
+    options.forEach(function(item){
+      lines.push(item[1] + '. ' + item[2]);
+    });
+  }
+  lines.push('',
+    '📝 作答方式：' + (isMulti ? '请直接回复选项字母（如：AC）' : '请直接回复你的答案'),
+    '📌 答题规则：每人限答1次，发布后30分钟内有效');
+  if(deadline){ lines.push('⏰ 截止时间：' + deadline); }
+  var text = lines.join('\n');
+
+  function fallbackCopy(){
+    var ta=document.createElement('textarea');
+    ta.value=text;
+    ta.setAttribute('readonly','');
+    ta.style.position='fixed';
+    ta.style.opacity='0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok=false;
+    try{ ok=document.execCommand('copy'); }catch(e){ ok=false; }
+    document.body.removeChild(ta);
+    if(ok){ alert('已复制！粘贴到群里即可发布考题'); }
+    else{ alert('复制失败，请手动选择并复制考题内容'); }
+  }
+
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text)
+      .then(function(){ alert('已复制！粘贴到群里即可发布考题'); })
+      .catch(function(){ fallbackCopy(); });
+  }else{
+    fallbackCopy();
+  }
+}
+
 (function(){
   setInterval(function(){
     document.querySelectorAll('.countdown').forEach(function(el){

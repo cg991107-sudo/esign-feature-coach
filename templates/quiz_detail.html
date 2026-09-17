@@ -83,9 +83,6 @@
       {% if show_others %}抢答记录 ({{answers|length}})
       {% else %}抢答记录（进行中保密）{% endif %}
     </span>
-    {% if u and u.role in ('sfr','admin') %}
-    <button class="btn btn-sm btn-outline-primary copy-btn" onclick="copyQuiz()"><i class="bi bi-clipboard"></i> 复制考题到群</button>
-    {% endif %}
   </div>
   <div class="card-body">
     {% if answers %}
@@ -147,47 +144,6 @@
 </div>
 
 <script>
-function copyQuiz(){
-  var typ = {% if q.quiz_type=="multi" %}'多选'{% else %}'问答'{% endif %};
-  var hasOpts = {% if options_list %}true{% else %}false{% endif %};
-  var copyLines = [
-    '📣 【抢答考核｜' + typ + '题】',
-    '',
-    '❓ 题目：',
-    {{ q.question|tojson }},
-    {% if options_list %}
-    '',
-    '🔹 选项：',
-    {% for idx,lett,opt in options_list %}{{ (lett ~ '. ' ~ opt)|tojson }},{% endfor %}
-    {% endif %}
-    '',
-    '📝 作答方式：' + (hasOpts ? '请直接回复选项字母（如：AC）' : '请直接回复你的答案'),
-    '📌 答题规则：每人限答1次，发布后30分钟内有效'{% if q.deadline %},
-    '⏰ 截止时间：' + {{ q.deadline|tojson }}{% endif %}
-  ];
-  var text = copyLines.join('\\n');
-  function fallbackCopy(){
-    var ta=document.createElement('textarea');
-    ta.value=text;
-    ta.setAttribute('readonly','');
-    ta.style.position='fixed';
-    ta.style.opacity='0';
-    document.body.appendChild(ta);
-    ta.select();
-    var ok=false;
-    try{ ok=document.execCommand('copy'); }catch(e){ ok=false; }
-    document.body.removeChild(ta);
-    if(ok){ alert('已复制！粘贴到群里开始抢答'); }
-    else{ alert('复制失败，请手动选择并复制考题内容'); }
-  }
-  if(navigator.clipboard && window.isSecureContext){
-    navigator.clipboard.writeText(text)
-      .then(function(){alert('已复制！粘贴到群里开始抢答');})
-      .catch(function(){fallbackCopy();});
-  }else{
-    fallbackCopy();
-  }
-}
 (function(){
   var deadline={{ deadline_ts or 0 }};
   function tick(){
