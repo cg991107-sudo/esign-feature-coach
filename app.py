@@ -13,8 +13,9 @@ import os
 import re
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
@@ -55,6 +56,22 @@ if USE_PG:
 app = Flask(__name__)
 app.secret_key = "esign-feature-coach-2026"
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+# 抢答考核统一按中国标准时间计算，避免 Render 服务器 UTC 时区造成日期错位。
+CHINA_TZ = ZoneInfo("Asia/Shanghai")
+
+def china_now():
+    """返回中国时间的无时区 datetime，兼容现有数据库的 TEXT 时间格式。"""
+    return datetime.now(CHINA_TZ).replace(tzinfo=None)
+
+def china_today_deadline(now=None):
+    """返回中国时间当天 23:59:59，作为抢答考核截止时间。"""
+    current = now or china_now()
+    return current.replace(hour=23, minute=59, second=59, microsecond=0)
+
+def china_timestamp(value):
+    """将数据库中的中国时间字符串对应的 naive datetime 转为 Unix 时间戳。"""
+    return int(value.replace(tzinfo=CHINA_TZ).timestamp())
 
 # ---------- 数据库 ----------
 
@@ -98,7 +115,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     closed_at TEXT,
     published_at TEXT,
     deadline TEXT,
-    duration_min INTEGER DEFAULT 30,
+    duration_min INTEGER DEFAULT 1440,
     auto_generated INTEGER DEFAULT 0,
     judge_mode TEXT DEFAULT 'manual',
     quiz_type TEXT DEFAULT 'qa',
@@ -168,7 +185,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     closed_at TEXT,
     published_at TEXT,
     deadline TEXT,
-    duration_min INTEGER DEFAULT 30,
+    duration_min INTEGER DEFAULT 1440,
     auto_generated INTEGER DEFAULT 0,
     judge_mode TEXT DEFAULT 'manual',
     quiz_type TEXT DEFAULT 'qa',
@@ -304,7 +321,7 @@ def migrate_db():
             for col, ddl in [
                 ("published_at", "TEXT"),
                 ("deadline", "TEXT"),
-                ("duration_min", "INTEGER DEFAULT 30"),
+                ("duration_min", "INTEGER DEFAULT 1440"),
                 ("auto_generated", "INTEGER DEFAULT 0"),
                 ("judge_mode", "TEXT DEFAULT 'manual'"),
                 ("quiz_type", "TEXT DEFAULT 'qa'"),
@@ -334,7 +351,7 @@ def migrate_db():
             for col, ddl in [
                 ("published_at", "TEXT"),
                 ("deadline", "TEXT"),
-                ("duration_min", "INTEGER DEFAULT 30"),
+                ("duration_min", "INTEGER DEFAULT 1440"),
                 ("auto_generated", "INTEGER DEFAULT 0"),
                 ("judge_mode", "TEXT DEFAULT 'manual'"),
                 ("quiz_type", "TEXT DEFAULT 'qa'"),
@@ -583,6 +600,7 @@ def features_page():
     q = request.args.get("q", "").strip()
     cat = request.args.get("cat", "").strip()
     status = request.args.get("status", "").strip()
+    filled_date = request.args.get("filled_date", "").strip()
     mine = request.args.get("mine", "").strip()
     tab = request.args.get("tab", "").strip()   # all / unshared / shared
     owner = request.args.get("owner", "").strip()  # 负责人筛选："unclaimed" 或用户 id
@@ -613,13 +631,17 @@ def features_page():
         elif owner.isdigit():
             sql += " AND f.owner_sfr_id=?"
             args.append(int(owner))
+    if filled_date:
+        # filled_date 保存格式为 YYYY-MM-DD HH:MM，按自然日筛选整天记录。
+        sql += " AND f.filled_date >= ? AND f.filled_date < ?"
+        args.extend([filled_date, f"{filled_date} 23:59:59"])
     sql += " ORDER BY f.code, f.id"
     rows = db.execute(sql, args).fetchall()
     cats = [r["category"] for r in db.execute(
         "SELECT DISTINCT category FROM features WHERE category IS NOT NULL").fetchall()]
-    # 负责人下拉选项：所有 SFR + "未认领"
+    # 负责人下拉选项使用系统内全部用户，避免角色调整或尚未分配功能的用户（例如开阳）缺失。
     owners = [r for r in db.execute(
-        "SELECT id,name FROM users WHERE role='sfr' ORDER BY name").fetchall()]
+        "SELECT id,name FROM users ORDER BY name").fetchall()]
     # SFR 未认领数量（用于顶部提示）
     unclaimed = 0
     if u and u["role"] == "sfr":
@@ -636,7 +658,8 @@ def features_page():
     shared_count = db.execute(
         "SELECT COUNT(*) c FROM features WHERE status='shared'").fetchone()["c"]
     return render_template("features.html", features=rows, cats=cats, owners=owners,
-                           q=q, cat=cat, status=status, mine=mine, tab=tab, owner=owner,
+                           q=q, cat=cat, status=status, filled_date=filled_date,
+                           mine=mine, tab=tab, owner=owner,
                            unclaimed=unclaimed, my_count=my_count, u=u,
                            unshared_count=unshared_count, shared_count=shared_count)
 
@@ -765,7 +788,7 @@ def fill_form(fid):
     if request.method == "POST":
         scenario = format_content(request.form.get("scenario", ""))
         value_point = format_content(request.form.get("value_point", ""))
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        now_str = china_now().strftime("%Y-%m-%d %H:%M")
         if scenario and value_point:
             # 填写完成 → 自动分享到学习中心（跳过 filled 中间态）
             status = "shared"
@@ -908,7 +931,7 @@ def quiz_page():
         dl_ts = None
         if r["deadline"]:
             try:
-                dl_ts = int(datetime.strptime(r["deadline"], "%Y-%m-%d %H:%M:%S").timestamp())
+                dl_ts = china_timestamp(datetime.strptime(r["deadline"], "%Y-%m-%d %H:%M:%S"))
             except Exception:
                 pass
         d["deadline_ts"] = dl_ts
@@ -920,7 +943,7 @@ def quiz_page():
         ar = db.execute("SELECT quiz_id, is_correct, score FROM answers WHERE user_id=?", (u["id"],)).fetchall()
         my_answers = {r["quiz_id"]: {"correct": r["is_correct"], "score": r["score"]} for r in ar}
     return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers,
-                           now_ts=int(datetime.now().timestamp()))
+                           now_ts=china_timestamp(china_now()))
 
 
 @app.route("/api/generate-quiz")
@@ -974,9 +997,9 @@ def quiz_auto_generate():
         return redirect(url_for("quiz_page"))
 
     u = current_user()
-    now = datetime.now()
-    duration = 30
-    deadline = now + timedelta(minutes=duration)
+    now = china_now()
+    duration = 1440
+    deadline = china_today_deadline(now)
     made, failed = 0, 0
     try:
         from ai_helper import ai_generate_quiz
@@ -1009,7 +1032,7 @@ def quiz_auto_generate():
                     duration, options_text, ca, full_score))
         made += 1
     db.commit()
-    flash(f"系统自动出题完成：成功发布 {made} 道多选题" + (f"，{failed} 道生成失败" if failed else "") + "（满分=正确答案数），30分钟内可抢答", "success")
+    flash(f"系统自动出题完成：成功发布 {made} 道多选题" + (f"，{failed} 道生成失败" if failed else "") + "（满分=正确答案数），当天23:59前可抢答", "success")
     return redirect(url_for("quiz_page"))
 
 
@@ -1110,9 +1133,9 @@ def quiz_create():
             options_text = "|||".join(opts)
             correct_answer = "".join(letters)
         u = current_user()
-        now = datetime.now()
-        duration = 30
-        deadline = now + timedelta(minutes=duration)
+        now = china_now()
+        duration = 1440
+        deadline = china_today_deadline(now)
         if quiz_type == "multi":
             full_score = len(correct_answer) if correct_answer else 1
         else:
@@ -1127,7 +1150,7 @@ def quiz_create():
                     quiz_type, options_text, correct_answer, full_score))
         db.commit()
         typ_label = "多选题" if quiz_type == "multi" else "问答题"
-        flash(f"已发布 {typ_label}（{'满分'+str(full_score)+'分' if quiz_type=='multi' else '1分'}，30分钟内可抢答）", "success")
+        flash(f"已发布 {typ_label}（{'满分'+str(full_score)+'分' if quiz_type=='multi' else '1分'}，当天23:59前可抢答）", "success")
         return redirect(url_for("quiz_page"))
     features = db.execute(
         "SELECT * FROM features WHERE value_point IS NOT NULL AND value_point!='' ORDER BY name").fetchall()
@@ -1145,12 +1168,12 @@ def quiz_answer(qid):
     if not q or q["status"] != "active":
         flash("该题已关闭", "warning")
         return redirect(url_for("quiz_page"))
-    # 30 分钟限时检查
+    # 当天 23:59 限时检查（截止时间按中国标准时间存储）
     if q["deadline"]:
         try:
             dl = datetime.strptime(q["deadline"], "%Y-%m-%d %H:%M:%S")
-            if datetime.now() > dl:
-                flash(f"已超过作答时限（{q['duration_min'] or 30}分钟），无法抢答", "warning")
+            if china_now() > dl:
+                flash("已超过当天作答时间（当天23:59截止），无法抢答", "warning")
                 return redirect(url_for("quiz_page"))
         except Exception:
             pass
@@ -1291,11 +1314,11 @@ def quiz_detail(qid):
     deadline_ts = None
     if q["deadline"]:
         try:
-            deadline_ts = int(datetime.strptime(q["deadline"], "%Y-%m-%d %H:%M:%S").timestamp())
+            deadline_ts = china_timestamp(datetime.strptime(q["deadline"], "%Y-%m-%d %H:%M:%S"))
         except Exception:
             pass
     return render_template("quiz_detail.html", q=q, answers=answers,
-                           u=u, now_ts=int(datetime.now().timestamp()),
+                           u=u, now_ts=china_timestamp(china_now()),
                            deadline_ts=deadline_ts, show_others=show_others,
                            my_answered=my_answered,
                            options_list=quiz_options_list(q) if (q["quiz_type"] or "qa") == "multi" else [])

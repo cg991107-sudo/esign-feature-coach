@@ -9,7 +9,7 @@
 </div>
 
 {% if u and u.role == 'business' %}
-<div class="alert alert-info"><i class="bi bi-megaphone"></i> 商务同学看这里：点击考题下方的「我要抢答」提交回答，<b>系统用 AI 自动判分</b>，答对自动+1分。每题只能答一次，发布后 <b>30 分钟内</b>有效，想好了再提交！</div>
+<div class="alert alert-info"><i class="bi bi-megaphone"></i> 商务同学看这里：点击考题下方的「我要抢答」提交回答，<b>系统用 AI 自动判分</b>，答对自动+1分。每题只能答一次，发布当天 <b>23:59 前</b>有效，次日不能再答！</div>
 {% endif %}
 
 {% for q in quizzes %}
@@ -124,7 +124,7 @@ function copyQuizFromList(quizType, question, options, deadline){
   }
   lines.push('',
     '📝 作答方式：' + (isMulti ? '请直接回复选项字母（如：AC）' : '请直接回复你的答案'),
-    '📌 答题规则：每人限答1次，发布后30分钟内有效');
+    '📌 答题规则：每人限答1次，发布当天23:59前有效');
   if(deadline){ lines.push('⏰ 截止时间：' + deadline); }
   var text = lines.join('\n');
 

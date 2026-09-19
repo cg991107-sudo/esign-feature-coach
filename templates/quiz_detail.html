@@ -61,7 +61,7 @@
         </div>
         {% endfor %}
       </div>
-      <small class="text-muted d-block mt-2">多选：勾选所有正确选项后提交，系统按正确答案比对自动判分，每题仅一次，30分钟内有效。</small>
+      <small class="text-muted d-block mt-2">多选：勾选所有正确选项后提交，系统按正确答案比对自动判分，每题仅一次，发布当天23:59前有效。</small>
       <button class="btn btn-success mt-2"><i class="bi bi-send"></i> 提交回答</button>
     </form>
     {% else %}
@@ -70,7 +70,7 @@
         <input type="text" name="content" class="form-control" placeholder="输入你的回答..." required>
         <button class="btn btn-success"><i class="bi bi-send"></i> 提交回答</button>
       </div>
-      <small class="text-muted">每题仅能抢答一次，提交后由 AI 自动判分，发布后 30 分钟内有效。</small>
+      <small class="text-muted">每题仅能抢答一次，提交后由 AI 自动判分，发布当天23:59前有效。</small>
     </form>
     {% endif %}
   </div>
