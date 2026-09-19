@@ -18,7 +18,9 @@
             <select name="feature_id" id="feature_id" class="form-select" required>
               <option value="">-- 请选择功能（须已填写场景/价值）--</option>
               {% for f in features %}
-              <option value="{{f.id}}">{{f.name}} {% if f.code %}({{f.code}}){% endif %}</option>
+              <option value="{{f.id}}" {% if f.has_answered_quiz %}disabled{% endif %}>
+                {{f.name}} {% if f.code %}({{f.code}}){% endif %}{% if f.has_answered_quiz %} — 已出题且已有人回答{% endif %}
+              </option>
               {% endfor %}
             </select>
             <div class="mt-2">

@@ -952,6 +952,12 @@ def api_generate_quiz():
     fid = request.args.get("feature_id", type=int)
     qtype = request.args.get("type", "multi")
     db = get_db()
+    answered_quiz = db.execute(
+        """SELECT 1 FROM quizzes q
+           JOIN answers a ON a.quiz_id=q.id
+           WHERE q.feature_id=? LIMIT 1""", (fid,)).fetchone()
+    if answered_quiz:
+        return jsonify({"error": "该功能已经出过题且已有回答，不能重复出题"}), 400
     f = db.execute("SELECT name,scenario,value_point FROM features WHERE id=?", (fid,)).fetchone()
     if not f:
         return jsonify({"error": "功能不存在"}), 404
@@ -985,15 +991,20 @@ def quiz_auto_generate():
         ph = ",".join("?" for _ in fids)
         feats = db.execute(
             f"SELECT id,name,scenario,value_point FROM features WHERE id IN ({ph}) "
-            f"AND (value_point IS NOT NULL AND value_point!='')", fids).fetchall()
+            f"AND (value_point IS NOT NULL AND value_point!='') "
+            f"AND id NOT IN (SELECT DISTINCT feature_id FROM quizzes WHERE feature_id IS NOT NULL AND status='active') "
+            f"AND NOT EXISTS (SELECT 1 FROM quizzes q JOIN answers a ON a.quiz_id=q.id "
+            f"WHERE q.feature_id=features.id)", fids).fetchall()
     else:
         feats = db.execute(
             """SELECT id,name,scenario,value_point FROM features
                WHERE (value_point IS NOT NULL AND value_point!='')
                  AND id NOT IN (SELECT DISTINCT feature_id FROM quizzes WHERE feature_id IS NOT NULL AND status='active')
+                 AND NOT EXISTS (SELECT 1 FROM quizzes q JOIN answers a ON a.quiz_id=q.id
+                                 WHERE q.feature_id=features.id)
                ORDER BY name""").fetchall()
     if not feats:
-        flash("没有可自动出题的功能（需先填写场景/价值，或都已出过进行中的题）", "warning")
+        flash("没有可自动出题的功能（需先填写场景/价值，且不能有进行中的题或已有回答）", "warning")
         return redirect(url_for("quiz_page"))
 
     u = current_user()
@@ -1094,6 +1105,13 @@ def quiz_create():
         if not feature_id:
             flash("请选择关联功能", "danger")
             return redirect(url_for("quiz_create"))
+        answered_quiz = db.execute(
+            """SELECT 1 FROM quizzes q
+               JOIN answers a ON a.quiz_id=q.id
+               WHERE q.feature_id=? LIMIT 1""", (feature_id,)).fetchone()
+        if answered_quiz:
+            flash("该功能已经出过题且已有回答，不能重复出题", "warning")
+            return redirect(url_for("quiz_create"))
         if not question:
             flash("考题不能为空", "danger")
             return redirect(url_for("quiz_create"))
@@ -1153,7 +1171,15 @@ def quiz_create():
         flash(f"已发布 {typ_label}（{'满分'+str(full_score)+'分' if quiz_type=='multi' else '1分'}，当天23:59前可抢答）", "success")
         return redirect(url_for("quiz_page"))
     features = db.execute(
-        "SELECT * FROM features WHERE value_point IS NOT NULL AND value_point!='' ORDER BY name").fetchall()
+        """SELECT f.*,
+                  CASE WHEN EXISTS (
+                      SELECT 1 FROM quizzes q
+                      JOIN answers a ON a.quiz_id=q.id
+                      WHERE q.feature_id=f.id
+                  ) THEN 1 ELSE 0 END AS has_answered_quiz
+           FROM features f
+           WHERE f.value_point IS NOT NULL AND f.value_point!=''
+           ORDER BY f.name""").fetchall()
     preview = {f["id"]: {"name": f["name"], "scenario": (f["scenario"] or "")[:120],
                          "value": (f["value_point"] or "")[:120]} for f in features}
     return render_template("quiz_create.html", features=features, u=current_user(), preview=json.dumps(preview, ensure_ascii=False))
