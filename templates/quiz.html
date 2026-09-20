@@ -12,17 +12,31 @@
 <div class="alert alert-info"><i class="bi bi-megaphone"></i> 商务同学看这里：点击考题下方的「我要抢答」提交回答，<b>系统用 AI 自动判分</b>，答对自动+1分。每题只能答一次，发布当天 <b>23:59 前</b>有效，次日不能再答！</div>
 {% endif %}
 
+{% set section = namespace(key='') %}
 {% for q in quizzes %}
-<div class="card mb-3 {% if q.status=='active' %}border-primary{% endif %}">
+{% if q.section_key != section.key %}
+<div class="d-flex align-items-center gap-2 mt-4 mb-2">
+  <h5 class="fw-bold mb-0">
+    {% if q.section_key == 'pending' %}<i class="bi bi-lightning-charge text-success"></i>
+    {% elif q.section_key == 'answered' %}<i class="bi bi-check-circle text-primary"></i>
+    {% elif q.section_key == 'expired' %}<i class="bi bi-clock-history text-secondary"></i>
+    {% else %}<i class="bi bi-play-circle text-primary"></i>{% endif %}
+    {{q.section_title}}
+  </h5>
+  <span class="text-muted small">（以下共 {{ quizzes|selectattr('section_key', 'equalto', q.section_key)|list|length }} 道）</span>
+</div>
+{% set section.key = q.section_key %}
+{% endif %}
+<div class="card mb-3 {% if q.status=='active' and not q.is_expired %}border-primary{% endif %}">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-start mb-2">
       <div>
-        <span class="badge {% if q.status=='active' %}bg-primary{% else %}bg-secondary{% endif %}">
-          {% if q.status=='active' %}进行中{% else %}已关闭{% endif %}
+        <span class="badge {% if q.status=='active' and not q.is_expired %}bg-primary{% else %}bg-secondary{% endif %}">
+          {% if q.status=='active' and not q.is_expired %}进行中{% else %}已截止{% endif %}
         </span>
         {% if q.feature_name %}<span class="badge bg-light text-dark border ms-1">{{q.feature_name}}</span>{% endif %}
         <span class="badge bg-info text-dark ms-1">{% if q.quiz_type=='multi' %}多选题{% else %}问答题{% endif %}</span>
-        {% if q.status=='active' and q.deadline_ts %}
+        {% if q.status=='active' and not q.is_expired and q.deadline_ts %}
         <span class="badge bg-warning text-dark ms-1 countdown" data-deadline="{{q.deadline_ts}}">--</span>
         {% endif %}
         <span class="badge bg-light text-dark border ms-1">出题人：{{q.sfr_name}}</span>
@@ -62,7 +76,7 @@
             {% else %}<span class="badge bg-warning text-dark"><i class="bi bi-hourglass"></i> 待判定</span>{% endif %}
           {% endif %}
         </div>
-      {% elif q.status == 'active' %}
+      {% elif q.status == 'active' and not q.is_expired %}
         {% if q.options_list %}
         <form method="post" action="{{url_for('quiz_answer',qid=q.id)}}" class="mt-2">
           <div class="bg-light border rounded p-2">

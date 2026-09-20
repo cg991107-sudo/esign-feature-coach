@@ -942,8 +942,31 @@ def quiz_page():
     if u["role"] == "business":
         ar = db.execute("SELECT quiz_id, is_correct, score FROM answers WHERE user_id=?", (u["id"],)).fetchall()
         my_answers = {r["quiz_id"]: {"correct": r["is_correct"], "score": r["score"]} for r in ar}
+    now_ts = china_timestamp(china_now())
+    for d in quizzes:
+        expired = d["status"] != "active" or (d["deadline_ts"] and d["deadline_ts"] <= now_ts)
+        d["is_expired"] = bool(expired)
+        if u["role"] == "business":
+            if expired:
+                d["section_key"] = "expired"
+                d["section_title"] = "已截止的题"
+            elif d["id"] in my_answers:
+                d["section_key"] = "answered"
+                d["section_title"] = "已回答的题"
+            else:
+                d["section_key"] = "pending"
+                d["section_title"] = "待回答的题"
+        elif expired:
+            d["section_key"] = "expired"
+            d["section_title"] = "已截止的题"
+        else:
+            d["section_key"] = "active"
+            d["section_title"] = "进行中的题"
+    section_order = {"pending": 0, "answered": 1, "active": 0, "expired": 2}
+    quizzes.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    quizzes.sort(key=lambda item: section_order.get(item["section_key"], 9))
     return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers,
-                           now_ts=china_timestamp(china_now()))
+                           now_ts=now_ts)
 
 
 @app.route("/api/generate-quiz")
