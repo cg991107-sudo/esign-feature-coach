@@ -13,7 +13,7 @@ import os
 import re
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
 
@@ -72,6 +72,17 @@ def china_today_deadline(now=None):
 def china_timestamp(value):
     """将数据库中的中国时间字符串对应的 naive datetime 转为 Unix 时间戳。"""
     return int(value.replace(tzinfo=CHINA_TZ).timestamp())
+
+def format_duration(seconds):
+    """将答题跨度格式化为适合页面展示的中文时长。"""
+    seconds = max(0, int(seconds or 0))
+    minutes, secs = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}小时{minutes}分"
+    if minutes:
+        return f"{minutes}分{secs}秒"
+    return f"{secs}秒"
 
 # ---------- 数据库 ----------
 
@@ -1253,7 +1264,8 @@ def quiz_answer(qid):
                 idx = int(s)
                 display_parts.append(f"{chr(ord('A')+idx)}. {options[idx]}")
         content = " / ".join(display_parts) if display_parts else user_letters
-        db.execute("INSERT INTO answers(quiz_id,user_id,content) VALUES(?,?,?)", (qid, u["id"], content))
+        db.execute("INSERT INTO answers(quiz_id,user_id,content,answered_at) VALUES(?,?,?,?)",
+                   (qid, u["id"], content, china_now().strftime("%Y-%m-%d %H:%M:%S")))
         db.commit()
         # 分值制：正确答案集合 full；答题选的正确项命中数 = 得分（每个正确答案1分）
         correct_set = set((q["correct_answer"] or "").upper()) - set(" \t,，;；")
@@ -1293,7 +1305,8 @@ def quiz_answer(qid):
     if not content:
         flash("回答不能为空", "danger")
         return redirect(url_for("quiz_page"))
-    db.execute("INSERT INTO answers(quiz_id,user_id,content) VALUES(?,?,?)", (qid, u["id"], content))
+    db.execute("INSERT INTO answers(quiz_id,user_id,content,answered_at) VALUES(?,?,?,?)",
+               (qid, u["id"], content, china_now().strftime("%Y-%m-%d %H:%M:%S")))
     db.commit()
     # AI 自动判分
     try:
@@ -1432,6 +1445,49 @@ def quiz_delete(qid):
 @require_login
 def ranking_page():
     db = get_db()
+    # 每日答题统计：默认统计中国时间当天，也支持通过日期选择器查询历史数据。
+    stat_day = request.args.get("day", "").strip()
+    try:
+        stat_date = datetime.strptime(stat_day, "%Y-%m-%d") if stat_day else china_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        stat_day = stat_date.strftime("%Y-%m-%d")
+    except ValueError:
+        stat_date = china_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        stat_day = stat_date.strftime("%Y-%m-%d")
+    stat_start = f"{stat_day} 00:00:00"
+    stat_end = f"{stat_day} 23:59:59"
+    daily_rows = db.execute(
+        """SELECT u.id, u.name, a.answered_at, a.is_correct, a.score
+           FROM users u
+           LEFT JOIN answers a ON a.user_id=u.id
+             AND a.answered_at >= ? AND a.answered_at <= ?
+           WHERE u.role='business'
+           ORDER BY u.name, a.answered_at""", (stat_start, stat_end)).fetchall()
+    daily_map = {}
+    for row in daily_rows:
+        uid = row["id"]
+        item = daily_map.setdefault(uid, {
+            "name": row["name"], "answered_count": 0, "correct_count": 0,
+            "points": 0, "first_answered_at": None, "last_answered_at": None,
+            "duration": "0秒"
+        })
+        answered_at = row["answered_at"]
+        if not answered_at:
+            continue
+        item["answered_count"] += 1
+        item["correct_count"] += 1 if row["is_correct"] == 1 else 0
+        item["points"] += int(row["score"] or 0)
+        if not item["first_answered_at"]:
+            item["first_answered_at"] = answered_at
+        item["last_answered_at"] = answered_at
+    for item in daily_map.values():
+        if item["first_answered_at"] and item["last_answered_at"]:
+            try:
+                first = datetime.strptime(item["first_answered_at"], "%Y-%m-%d %H:%M:%S")
+                last = datetime.strptime(item["last_answered_at"], "%Y-%m-%d %H:%M:%S")
+                item["duration"] = format_duration((last - first).total_seconds())
+            except ValueError:
+                item["duration"] = "-"
+    daily_stats = sorted(daily_map.values(), key=lambda item: (-item["answered_count"], -item["correct_count"], item["name"]))
     # 积分榜：points = SUM(score)（多选题按命中正确答案数计分；问答题答对1分）
     scores = db.execute("""
         SELECT u.id, u.name,
@@ -1462,7 +1518,8 @@ def ranking_page():
         GROUP BY u.id ORDER BY shared_done DESC, u.name
     """).fetchall()
     return render_template("ranking.html", scores=scores, learning=learning,
-                           total_shared=total_shared, sfr_share=sfr_share, u=current_user())
+                           total_shared=total_shared, sfr_share=sfr_share,
+                           daily_stats=daily_stats, stat_day=stat_day, u=current_user())
 
 
 # ---------- 示例数据 ----------

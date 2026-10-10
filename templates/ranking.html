@@ -5,6 +5,40 @@
   <h3 class="fw-bold mb-0"><i class="bi bi-bar-chart-fill text-primary"></i> 排行榜</h3>
 </div>
 
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-calendar2-check"></i> 每日答题统计</span>
+    <form method="get" class="d-flex gap-2 align-items-center">
+      <label class="small text-muted mb-0" for="stat_day">统计日期</label>
+      <input type="date" id="stat_day" name="day" value="{{stat_day}}" class="form-control form-control-sm">
+      <button class="btn btn-sm btn-primary"><i class="bi bi-search"></i> 查询</button>
+    </form>
+  </div>
+  <div class="card-body py-2 px-0">
+    <div class="px-3 pb-2 small text-muted">答题用时按当天第一道题提交到最后一道题提交的时间跨度统计；完成时间为当天最后一次提交时间。</div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>商务</th><th class="text-center">答题数</th><th class="text-center">答对数</th><th class="text-center">答题用时</th><th class="text-center">完成时间</th><th class="text-end">当日得分</th></tr></thead>
+        <tbody>
+          {% for s in daily_stats %}
+          <tr>
+            <td class="fw-semibold">{{s.name}}</td>
+            <td class="text-center"><span class="badge {% if s.answered_count %}bg-primary{% else %}bg-light text-dark border{% endif %}">{{s.answered_count}}</span></td>
+            <td class="text-center"><span class="badge {% if s.correct_count %}bg-success{% else %}bg-light text-dark border{% endif %}">{{s.correct_count}}</span></td>
+            <td class="text-center">{{s.duration}}</td>
+            <td class="text-center">{{s.last_answered_at or '-'}}</td>
+            <td class="text-end"><span class="badge bg-primary">{{s.points}} 分</span></td>
+          </tr>
+          {% endfor %}
+          {% if not daily_stats %}
+          <tr><td colspan="6"><div class="empty-state"><i class="bi bi-calendar-x"></i><p>暂无商务人员或答题数据</p></div></td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div class="row g-4">
   <div class="col-lg-7">
     <div class="card">
