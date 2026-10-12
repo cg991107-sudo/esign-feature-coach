@@ -921,8 +921,13 @@ def toggle_learn(fid):
 
 def quiz_options_list(q):
     """将 quizzes.options 字段解析为 [(下标, 字母, 选项文本), ...]"""
-    opts = [o for o in (q["options"] or "").split("|||") if o]
+    opts = [normalize_option_text(o) for o in (q["options"] or "").split("|||") if o]
     return [(i, chr(ord("A") + i), o) for i, o in enumerate(opts)]
+
+def normalize_option_text(text):
+    """清理选项文本中可能已经存在的 A./B. 等编号，避免页面重复展示编号。"""
+    value = str(text or "").strip()
+    return re.sub(r"^(?:[A-Da-d]\s*[.．、:：]\s*)+", "", value).strip()
 
 @app.route("/quiz")
 @require_login
@@ -1008,7 +1013,7 @@ def api_generate_quiz():
         return jsonify({
             "question": res["question"],
             "reference": res.get("reference", ""),
-            "options": res.get("options", []),
+            "options": [normalize_option_text(o) for o in res.get("options", [])],
             "correct_answer": res.get("correct_answer", ""),
         })
     return jsonify({"question": res["question"], "reference": res.get("reference", "")})
@@ -1060,7 +1065,7 @@ def quiz_auto_generate():
         if not q or not q.get("question") or not q.get("options"):
             failed += 1
             continue
-        opts = [o for o in q.get("options", [])][:4]
+        opts = [normalize_option_text(o) for o in q.get("options", []) if str(o).strip()][:4]
         while len(opts) < 4:
             opts.append("（选项）")
         ca = "".join(c for c in (q.get("correct_answer") or "").upper() if c in "ABCD")
@@ -1154,7 +1159,7 @@ def quiz_create():
         if quiz_type == "multi":
             opts = []
             for i in range(1, 5):
-                o = request.form.get(f"opt{i}", "").strip()
+                o = normalize_option_text(request.form.get(f"opt{i}", ""))
                 if o:
                     opts.append(o)
             ca_raw = request.form.get("correct_answer", "").strip().upper()
@@ -1246,7 +1251,7 @@ def quiz_answer(qid):
     # ---------- 多选题：勾选选项作答 ----------
     if quiz_type == "multi":
         selected = request.form.getlist("choice")   # 值形如 "0"、"1"，对应选项下标
-        options = [o for o in (q["options"] or "").split("|||") if o]
+        options = [opt for _, _, opt in quiz_options_list(q)]
         if not selected:
             flash("请至少选择一个选项", "danger")
             return redirect(url_for("quiz_page"))
@@ -1274,10 +1279,13 @@ def quiz_answer(qid):
         full_score = int(q["full_score"] or 1)      # 全对满分（=正确答案数）
         if full_score <= 0:
             full_score = len(correct_set) or 1
-        score = hit
-        correct = 1 if score == full_score else 0   # 全对才标记为"答对"
+        extra_set = user_set - correct_set
+        score = hit if not extra_set else 0
+        correct = 1 if user_set == correct_set else 0   # 必须与正确答案集合完全一致
         ca_text = "".join(sorted(correct_set))
-        reason = f"本题满分 {full_score} 分（每正确选项1分）。正确答案 {ca_text}，你选择了 {user_letters or '无'}，命中 {hit} 分。"
+        reason = f"本题满分 {full_score} 分（每正确选项1分）。正确答案 {ca_text}，你选择了 {user_letters or '无'}，命中 {hit} 个正确选项。"
+        if extra_set:
+            reason += f" 多选了错误选项 {''.join(sorted(extra_set))}，本题不得分。"
         db.execute("""UPDATE answers SET is_correct=?, score=?, judge_reason=?, auto_judged=1
                       WHERE quiz_id=? AND user_id=?""",
                    (correct, score, reason, qid, u["id"]))
