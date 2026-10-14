@@ -12,6 +12,8 @@ e签宝 · 功能价值教练 (Feature Value Coach)
 import os
 import re
 import json
+import csv
+import io
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
@@ -19,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    session, jsonify, g, flash
+    session, jsonify, g, flash, Response
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -83,6 +85,52 @@ def format_duration(seconds):
     if minutes:
         return f"{minutes}分{secs}秒"
     return f"{secs}秒"
+
+def normalize_stat_day(raw_day):
+    """规范化排行榜统计日期，非法或未提供时使用中国时间当天。"""
+    try:
+        stat_date = datetime.strptime(raw_day, "%Y-%m-%d") if raw_day else china_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    except ValueError:
+        stat_date = china_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return stat_date.strftime("%Y-%m-%d")
+
+def build_daily_stats(db, stat_day):
+    """按指定中国日期汇总商务人员答题统计。"""
+    stat_start = f"{stat_day} 00:00:00"
+    stat_end = f"{stat_day} 23:59:59"
+    daily_rows = db.execute(
+        """SELECT u.id, u.name, a.answered_at, a.is_correct, a.score
+           FROM users u
+           LEFT JOIN answers a ON a.user_id=u.id
+             AND a.answered_at >= ? AND a.answered_at <= ?
+           WHERE u.role='business'
+           ORDER BY u.name, a.answered_at""", (stat_start, stat_end)).fetchall()
+    daily_map = {}
+    for row in daily_rows:
+        uid = row["id"]
+        item = daily_map.setdefault(uid, {
+            "name": row["name"], "answered_count": 0, "correct_count": 0,
+            "points": 0, "first_answered_at": None, "last_answered_at": None,
+            "duration": "0秒"
+        })
+        answered_at = row["answered_at"]
+        if not answered_at:
+            continue
+        item["answered_count"] += 1
+        item["correct_count"] += 1 if row["is_correct"] == 1 else 0
+        item["points"] += int(row["score"] or 0)
+        if not item["first_answered_at"]:
+            item["first_answered_at"] = answered_at
+        item["last_answered_at"] = answered_at
+    for item in daily_map.values():
+        if item["first_answered_at"] and item["last_answered_at"]:
+            try:
+                first = datetime.strptime(item["first_answered_at"], "%Y-%m-%d %H:%M:%S")
+                last = datetime.strptime(item["last_answered_at"], "%Y-%m-%d %H:%M:%S")
+                item["duration"] = format_duration((last - first).total_seconds())
+            except ValueError:
+                item["duration"] = "-"
+    return sorted(daily_map.values(), key=lambda item: (-item["answered_count"], -item["correct_count"], item["name"]))
 
 # ---------- 数据库 ----------
 
@@ -1454,48 +1502,8 @@ def quiz_delete(qid):
 def ranking_page():
     db = get_db()
     # 每日答题统计：默认统计中国时间当天，也支持通过日期选择器查询历史数据。
-    stat_day = request.args.get("day", "").strip()
-    try:
-        stat_date = datetime.strptime(stat_day, "%Y-%m-%d") if stat_day else china_now().replace(hour=0, minute=0, second=0, microsecond=0)
-        stat_day = stat_date.strftime("%Y-%m-%d")
-    except ValueError:
-        stat_date = china_now().replace(hour=0, minute=0, second=0, microsecond=0)
-        stat_day = stat_date.strftime("%Y-%m-%d")
-    stat_start = f"{stat_day} 00:00:00"
-    stat_end = f"{stat_day} 23:59:59"
-    daily_rows = db.execute(
-        """SELECT u.id, u.name, a.answered_at, a.is_correct, a.score
-           FROM users u
-           LEFT JOIN answers a ON a.user_id=u.id
-             AND a.answered_at >= ? AND a.answered_at <= ?
-           WHERE u.role='business'
-           ORDER BY u.name, a.answered_at""", (stat_start, stat_end)).fetchall()
-    daily_map = {}
-    for row in daily_rows:
-        uid = row["id"]
-        item = daily_map.setdefault(uid, {
-            "name": row["name"], "answered_count": 0, "correct_count": 0,
-            "points": 0, "first_answered_at": None, "last_answered_at": None,
-            "duration": "0秒"
-        })
-        answered_at = row["answered_at"]
-        if not answered_at:
-            continue
-        item["answered_count"] += 1
-        item["correct_count"] += 1 if row["is_correct"] == 1 else 0
-        item["points"] += int(row["score"] or 0)
-        if not item["first_answered_at"]:
-            item["first_answered_at"] = answered_at
-        item["last_answered_at"] = answered_at
-    for item in daily_map.values():
-        if item["first_answered_at"] and item["last_answered_at"]:
-            try:
-                first = datetime.strptime(item["first_answered_at"], "%Y-%m-%d %H:%M:%S")
-                last = datetime.strptime(item["last_answered_at"], "%Y-%m-%d %H:%M:%S")
-                item["duration"] = format_duration((last - first).total_seconds())
-            except ValueError:
-                item["duration"] = "-"
-    daily_stats = sorted(daily_map.values(), key=lambda item: (-item["answered_count"], -item["correct_count"], item["name"]))
+    stat_day = normalize_stat_day(request.args.get("day", "").strip())
+    daily_stats = build_daily_stats(db, stat_day)
     # 积分榜：points = SUM(score)（多选题按命中正确答案数计分；问答题答对1分）
     scores = db.execute("""
         SELECT u.id, u.name,
@@ -1528,6 +1536,29 @@ def ranking_page():
     return render_template("ranking.html", scores=scores, learning=learning,
                            total_shared=total_shared, sfr_share=sfr_share,
                            daily_stats=daily_stats, stat_day=stat_day, u=current_user())
+
+@app.route("/ranking/export")
+@require_login
+def ranking_export():
+    """导出指定日期的每日答题统计，使用带 UTF-8 BOM 的 CSV 兼容 Excel。"""
+    stat_day = normalize_stat_day(request.args.get("day", "").strip())
+    daily_stats = build_daily_stats(get_db(), stat_day)
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(["统计日期", "商务", "答题数", "答对数", "答题用时", "完成时间", "当日得分"])
+    for item in daily_stats:
+        writer.writerow([
+            stat_day,
+            item["name"],
+            item["answered_count"],
+            item["correct_count"],
+            item["duration"],
+            item["last_answered_at"] or "-",
+            item["points"]
+        ])
+    response = Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8")
+    response.headers["Content-Disposition"] = f'attachment; filename="daily_quiz_stats_{stat_day}.csv"'
+    return response
 
 
 # ---------- 示例数据 ----------

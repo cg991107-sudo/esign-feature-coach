@@ -12,6 +12,7 @@
       <label class="small text-muted mb-0" for="stat_day">统计日期</label>
       <input type="date" id="stat_day" name="day" value="{{stat_day}}" class="form-control form-control-sm">
       <button class="btn btn-sm btn-primary"><i class="bi bi-search"></i> 查询</button>
+      <a class="btn btn-sm btn-outline-success" href="{{url_for('ranking_export', day=stat_day)}}"><i class="bi bi-download"></i> 导出 CSV</a>
     </form>
   </div>
   <div class="card-body py-2 px-0">
