@@ -85,7 +85,10 @@ e签宝解决思路：{{c.share_summary}}
 
 今日思考：{{(c.diagnosis_questions or ['客户目前是否存在类似问题？'])[0]}}{% else %}{{c.title}}
 {{c.solution}}{% endif %}</textarea>
-            <button class="btn btn-sm btn-outline-success mt-2" onclick="copyScenario('share-text-{{s.id}}', this)"><i class="bi bi-clipboard"></i> 复制分享卡片</button>
+            <div class="d-flex gap-2 mt-2 flex-wrap">
+              <button class="btn btn-sm btn-outline-success" onclick="copyScenario('share-text-{{s.id}}', this)"><i class="bi bi-clipboard"></i> 复制分享卡片</button>
+              <button class="btn btn-sm btn-warning" onclick="downloadScenarioImage({{s.id}})"><i class="bi bi-image"></i> 下载分享图片</button>
+            </div>
           </div>
         </div>
       </div>
@@ -142,6 +145,83 @@ function copyScenario(id, btn) {
   }).catch(function(){
     var el = document.getElementById(id); el.select(); document.execCommand('copy'); alert('已复制');
   });
+}
+
+var SCENARIOS = {};
+{% for s in cards %}
+SCENARIOS[{{s.id}}] = {
+  industry: {{s.industry|tojson}},
+  title: {{(s.content.title or s.title)|tojson}},
+  background: {{(s.content.background or '-')|tojson}},
+  painPoints: {{(s.content.pain_points or [])|tojson}},
+  solution: {{(s.content.solution or '-')|tojson}},
+  salesScript: {{(s.content.sales_script or '')|tojson}},
+  owner: {{(s.creator_name or '-')|tojson}}
+};
+{% endfor %}
+
+function slicePosterText(ctx, text, maxW){
+  var lines=[], line='';
+  text=String(text || '');
+  for(var i=0;i<text.length;i++){
+    var ch=text[i];
+    if(ch==='\n'){lines.push(line);line='';continue;}
+    var test=line+ch;
+    if(ctx.measureText(test).width>maxW && line){lines.push(line);line=ch;}else{line=test;}
+  }
+  if(line || !lines.length) lines.push(line);
+  return lines;
+}
+
+function downloadScenarioImage(id){
+  var s=SCENARIOS[id];
+  if(!s){alert('场景数据不存在');return;}
+  var W=900, M=44, cw=W-M*2-68, bannerH=176, bottom=86;
+  var measure=document.createElement('canvas').getContext('2d');
+  measure.font='bold 34px "PingFang SC",sans-serif';
+  var titleLines=slicePosterText(measure,s.title,cw).length;
+  measure.font='23px "PingFang SC","Microsoft YaHei",sans-serif';
+  var bgLines=slicePosterText(measure,s.background,cw).length;
+  var painText=(s.painPoints||[]).map(function(x){return '• '+x;}).join('\n');
+  var painLines=slicePosterText(measure,painText,cw).length;
+  var solLines=slicePosterText(measure,s.solution,cw).length;
+  var scriptLines=s.salesScript?slicePosterText(measure,s.salesScript,cw).length:0;
+  var body=36+titleLines*46+14+36+28+44+bgLines*36+26+42+painLines*36+26+42+solLines*36+20;
+  if(scriptLines) body+=42+scriptLines*36+20;
+  body+=30+40+24;
+  var H=bannerH+body+bottom;
+  var c=document.createElement('canvas'); c.width=W; c.height=H;
+  var x=c.getContext('2d');
+  x.fillStyle='#f4f6fa';x.fillRect(0,0,W,H);
+  var grad=x.createLinearGradient(0,0,0,bannerH);grad.addColorStop(0,'#C00000');grad.addColorStop(1,'#B00CFF');
+  x.fillStyle=grad;x.fillRect(0,0,W,bannerH);
+  x.fillStyle='#fff';x.textAlign='center';x.font='bold 46px "PingFang SC",sans-serif';x.fillText('e签宝 · AI行业场景',W/2,82);
+  x.font='22px "PingFang SC",sans-serif';x.fillStyle='rgba(255,255,255,.92)';x.fillText('行业洞察 · 客户痛点 · 解决方案 · 销售话术',W/2,126);
+  var top=bannerH+36, cardX=M, cardW=W-M*2, rr=24, cardBottom=H-bottom+16;
+  x.fillStyle='#fff';x.beginPath();x.moveTo(cardX+rr,top);x.arcTo(cardX+cardW,top,cardX+cardW,top+rr,rr);
+  x.lineTo(cardX+cardW,cardBottom-rr);x.arcTo(cardX+cardW,cardBottom,cardX+cardW-rr,cardBottom,rr);
+  x.lineTo(cardX+rr,cardBottom);x.arcTo(cardX,cardBottom,cardX,cardBottom-rr,rr);
+  x.lineTo(cardX,top+rr);x.arcTo(cardX,top,cardX+rr,top,rr);x.closePath();x.fill();
+  var cx=M+34;x.textAlign='left';
+  x.font='bold 34px "PingFang SC",sans-serif';x.fillStyle='#C00000';
+  slicePosterText(x,s.title,cw).forEach(function(line,i){x.fillText(line,cx,top+34+i*46);});
+  top+=titleLines*46+14;x.font='20px "PingFang SC",sans-serif';x.fillStyle='#98a2b3';x.fillText(s.industry,cx,top);top+=34;
+  x.strokeStyle='#eef1f5';x.beginPath();x.moveTo(cx,top);x.lineTo(cx+cw,top);x.stroke();top+=26;
+  function section(label,text,lines,color){
+    x.font='bold 26px "PingFang SC",sans-serif';x.fillStyle='#1e293b';x.fillText('▎'+label,cx,top);top+=42;
+    x.font='23px "PingFang SC",sans-serif';
+    slicePosterText(x,text,cw).forEach(function(line,i){x.fillStyle=color||'#334155';x.fillText(line,cx,top+30+i*36);});
+    top+=lines*36+26;
+  }
+  section('行业背景',s.background,bgLines);
+  section('客户痛点',painText,painLines,'#334155');
+  section('e签宝解决方案',s.solution,solLines);
+  if(scriptLines) section('销售切入话术',s.salesScript,scriptLines,'#334155');
+  x.strokeStyle='#eef1f5';x.beginPath();x.moveTo(cx,top);x.lineTo(cx+cw,top);x.stroke();top+=30;
+  x.font='22px "PingFang SC",sans-serif';x.fillStyle='#64748b';x.fillText('👤 分享人：'+s.owner,cx,top);top+=38;
+  x.fillText('💡 请各位商务同学学习，后续会有抢答考核哦',cx,top);
+  x.fillStyle='#eef1f5';x.fillRect(0,cardBottom+18,W,bottom);x.textAlign='center';x.fillStyle='#98a2b3';x.font='20px "PingFang SC",sans-serif';x.fillText('e签宝 · 功能价值教练',W/2,H-30);
+  var a=document.createElement('a');a.download=(s.industry+'-'+s.title+'-分享图.png');a.href=c.toDataURL('image/png');document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
 </script>
 {% endblock %}

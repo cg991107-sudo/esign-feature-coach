@@ -55,9 +55,46 @@
   </div>
   {% endfor %}
   {% if not features %}
-  <div class="col-12"><div class="card"><div class="empty-state"><i class="bi bi-book"></i><p>暂无可学习的内容，等SFR分享功能后这里会出现</p></div></div></div>
+  {% if not scenario_cards %}<div class="col-12"><div class="card"><div class="empty-state"><i class="bi bi-book"></i><p>暂无可学习的内容，等SFR分享功能或生成行业场景后这里会出现</p></div></div></div>{% endif %}
   {% endif %}
 </div>
+
+{% if scenario_cards %}
+<div class="d-flex justify-content-between align-items-center mt-5 mb-3">
+  <h5 class="fw-bold mb-0"><i class="bi bi-stars text-primary"></i> AI行业场景</h5>
+  <a href="{{url_for('industry_scenarios_page')}}" class="btn btn-sm btn-outline-primary">生成更多场景</a>
+</div>
+<div class="row g-3">
+  {% for s in scenario_cards %}
+  {% set c = s.content %}
+  <div class="col-lg-6">
+    <div class="card h-100 {% if s.learned %}border-success{% endif %}">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="fw-bold mb-0"><span class="badge bg-primary me-1">{{s.industry}}</span>{{c.title or s.title}}</h6>
+          {% if s.learned %}<span class="badge bg-success"><i class="bi bi-check-lg"></i> 已学习</span>
+          {% else %}<span class="badge bg-light text-muted border">待学习</span>{% endif %}
+        </div>
+        <div class="mb-3"><small class="text-muted fw-bold">📍 行业背景</small><p class="small scenario-text mb-0 mt-1">{{c.background or '-'}}</p></div>
+        <div class="mb-3"><small class="text-muted fw-bold">⚠️ 客户痛点</small>
+          <ul class="small mb-0">{% for x in c.pain_points or [] %}<li>{{x}}</li>{% endfor %}</ul>
+        </div>
+        <div class="mb-3"><small class="text-muted fw-bold">💡 e签宝解决方案</small><p class="small scenario-text mb-0 mt-1">{{c.solution or '-'}}</p></div>
+        <div class="d-flex justify-content-between align-items-center">
+          <small class="text-muted">生成时间：{{s.created_at}}</small>
+          <div class="d-flex gap-1">
+            <a href="{{url_for('industry_scenarios_page', industry=s.industry)}}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye"></i> 查看</a>
+            {% if u and u.role == 'business' %}
+            <button class="btn btn-sm {% if s.learned %}btn-outline-secondary{% else %}btn-success{% endif %}" onclick="toggleScenarioLearn({{s.id}},this)"><i class="bi {% if s.learned %}bi-arrow-counterclockwise{% else %}bi-check-lg{% endif %}"></i> {% if s.learned %}取消{% else %}已学习{% endif %}</button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if u and u.role == 'business' %}
 <script>
@@ -68,6 +105,20 @@ function toggleLearn(fid,btn){
       btn.innerHTML='<i class="bi bi-arrow-counterclockwise"></i> 取消';
       btn.closest('.card').classList.add('border-success');
       btn.closest('.card').querySelector('.badge.bg-light,.badge.bg-success').className='badge bg-success';
+    }else{
+      btn.className='btn btn-sm btn-success';
+      btn.innerHTML='<i class="bi bi-check-lg"></i> 已学习';
+      btn.closest('.card').classList.remove('border-success');
+    }
+    location.reload();
+  });
+}
+function toggleScenarioLearn(sid,btn){
+  fetch('/learn/scenario/'+sid+'/toggle',{method:'POST'}).then(r=>r.json()).then(d=>{
+    if(d.learned){
+      btn.className='btn btn-sm btn-outline-secondary';
+      btn.innerHTML='<i class="bi bi-arrow-counterclockwise"></i> 取消';
+      btn.closest('.card').classList.add('border-success');
     }else{
       btn.className='btn btn-sm btn-success';
       btn.innerHTML='<i class="bi bi-check-lg"></i> 已学习';

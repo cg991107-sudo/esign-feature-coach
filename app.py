@@ -213,6 +213,15 @@ CREATE TABLE IF NOT EXISTS industry_scenarios (
     created_at TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
+CREATE TABLE IF NOT EXISTS scenario_learning_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    scenario_id INTEGER NOT NULL,
+    learned_at TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(user_id, scenario_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (scenario_id) REFERENCES industry_scenarios(id)
+);
 """
 
 # Postgres 版建表语句：AUTOINCREMENT -> SERIAL；时间默认值改用 to_char(now(), ...)
@@ -294,6 +303,15 @@ CREATE TABLE IF NOT EXISTS industry_scenarios (
     created_by INTEGER NOT NULL,
     created_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'),
     FOREIGN KEY (created_by) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS scenario_learning_records (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    scenario_id INTEGER NOT NULL,
+    learned_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'),
+    UNIQUE(user_id, scenario_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (scenario_id) REFERENCES industry_scenarios(id)
 );
 """
 
@@ -967,10 +985,24 @@ def learn_page():
         (SELECT 1 FROM learning_records lr WHERE lr.user_id=? AND lr.feature_id=f.id) learned
         FROM features f LEFT JOIN users u ON u.id=f.owner_sfr_id
         WHERE f.status='shared' ORDER BY f.shared_date DESC, f.id""", (u["id"],)).fetchall()
-    total_shared = len(rows)
-    my_learned = sum(1 for r in rows if r["learned"])
+    scenario_rows = db.execute("""SELECT s.*, u.name creator_name,
+        (SELECT 1 FROM scenario_learning_records slr
+         WHERE slr.user_id=? AND slr.scenario_id=s.id) learned
+        FROM industry_scenarios s LEFT JOIN users u ON u.id=s.created_by
+        WHERE s.status='published' ORDER BY s.created_at DESC, s.id DESC""", (u["id"],)).fetchall()
+    scenario_cards = []
+    for row in scenario_rows:
+        item = dict(row)
+        try:
+            item["content"] = json.loads(item.get("content_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            item["content"] = {}
+        scenario_cards.append(item)
+    total_shared = len(rows) + len(scenario_cards)
+    my_learned = sum(1 for r in rows if r["learned"]) + sum(1 for r in scenario_cards if r["learned"])
     return render_template("learn.html", features=rows, u=u,
-                           total_shared=total_shared, my_learned=my_learned)
+                           scenario_cards=scenario_cards, total_shared=total_shared,
+                           my_learned=my_learned)
 
 
 @app.route("/learn/<int:fid>/toggle", methods=["POST"])
@@ -987,6 +1019,30 @@ def toggle_learn(fid):
         db.execute("INSERT INTO learning_records(user_id,feature_id) VALUES(?,?)", (u["id"], fid))
         db.commit()
         return jsonify({"learned": True})
+
+
+@app.route("/learn/scenario/<int:sid>/toggle", methods=["POST"])
+@require_role("business", "admin")
+def toggle_scenario_learn(sid):
+    u = current_user()
+    db = get_db()
+    exists = db.execute(
+        "SELECT id FROM scenario_learning_records WHERE user_id=? AND scenario_id=?",
+        (u["id"], sid)
+    ).fetchone()
+    if exists:
+        db.execute("DELETE FROM scenario_learning_records WHERE id=?", (exists["id"],))
+        db.commit()
+        return jsonify({"learned": False})
+    scenario = db.execute("SELECT id FROM industry_scenarios WHERE id=?", (sid,)).fetchone()
+    if not scenario:
+        return jsonify({"learned": False, "error": "场景不存在"}), 404
+    db.execute(
+        "INSERT INTO scenario_learning_records(user_id,scenario_id) VALUES(?,?)",
+        (u["id"], sid)
+    )
+    db.commit()
+    return jsonify({"learned": True})
 
 
 # ---------- 路由：考核抢答 ----------
@@ -1239,6 +1295,14 @@ def load_industry_scenarios(db, industry=""):
     return cards
 
 
+def scenario_content_key(data):
+    """生成场景内容指纹，用于避免标题不同但内容相同的重复卡片。"""
+    parts = [data.get("title", ""), data.get("background", ""), data.get("solution", "")]
+    parts.extend(data.get("pain_points", []) if isinstance(data.get("pain_points"), list) else [])
+    raw = "".join(str(x or "") for x in parts).lower()
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", raw)
+
+
 @app.route("/industry-scenarios")
 @require_login
 def industry_scenarios_page():
@@ -1264,13 +1328,34 @@ def api_generate_industry_scenario():
     if len(industry) > 50:
         return jsonify({"ok": False, "msg": "行业名称过长"}), 400
     db = get_db()
-    recent = db.execute(
-        "SELECT title FROM industry_scenarios WHERE industry=? ORDER BY id DESC LIMIT 20",
-        (industry,)
+    existing = db.execute(
+        "SELECT title, content_json FROM industry_scenarios ORDER BY id DESC"
     ).fetchall()
+    existing_titles = {re.sub(r"\s+", "", str(r["title"] or "")).lower() for r in existing}
+    existing_keys = set()
+    for row in existing:
+        try:
+            existing_keys.add(scenario_content_key(json.loads(row["content_json"] or "{}")))
+        except (TypeError, json.JSONDecodeError):
+            pass
+    recent_titles = [r["title"] for r in existing[:100]]
+    data = None
+    duplicate = False
     try:
         from ai_helper import ai_generate_industry_scenario
-        data = ai_generate_industry_scenario(industry, [r["title"] for r in recent])
+        for _ in range(3):
+            data = ai_generate_industry_scenario(industry, recent_titles)
+            if not data or data.get("error"):
+                break
+            title_key = re.sub(r"\s+", "", str(data.get("title", ""))).lower()
+            content_key = scenario_content_key(data)
+            if title_key and title_key not in existing_titles and content_key not in existing_keys:
+                break
+            duplicate = True
+            recent_titles.append(data.get("title", "重复场景"))
+            data = {"error": "AI生成了重复场景，正在重新生成"}
+        if data and data.get("error") and duplicate and data.get("error") == "AI生成了重复场景，正在重新生成":
+            return jsonify({"ok": False, "msg": "连续生成到重复场景，请稍后重试或换一个行业"}), 200
     except Exception as e:
         return jsonify({"ok": False, "msg": f"AI 生成异常：{type(e).__name__}: {e}"}), 200
     if not data or data.get("error"):
