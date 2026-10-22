@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}AI行业场景{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-1"><i class="bi bi-stars text-primary"></i> AI行业场景雷达</h3>
+    <div class="text-muted small">选择一个行业，AI检索相关资料并生成一张可直接分享的客户场景卡片。</div>
+  </div>
+</div>
+
+<div class="card mb-4 border-primary">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label fw-semibold" for="industry">选择行业</label>
+        <select id="industry" class="form-select">
+          <option value="">请选择行业</option>
+          {% for item in industries %}
+          <option value="{{item}}" {% if selected_industry==item %}selected{% endif %}>{{item}}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-auto">
+        {% if u and u.role in ('sfr','admin') %}
+        <button type="button" id="generate-btn" class="btn btn-primary" onclick="generateIndustryScenario()">
+          <i class="bi bi-stars"></i> AI生成今日场景
+        </button>
+        {% else %}
+        <span class="text-muted small">SFR生成，商务查看和使用</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="small text-muted mt-2">AI会参考可访问的行业知识资料，并结合现有 e签宝 产品能力生成；生成后请由SFR确认内容再分享。</div>
+  </div>
+</div>
+
+{% if cards %}
+  {% for s in cards %}
+  {% set c = s.content %}
+  <div class="card mb-4 scenario-card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <span class="badge bg-primary me-2">{{s.industry}}</span>
+        <span class="fw-bold">{{c.title or s.title}}</span>
+      </div>
+      <span class="small text-muted">{{s.created_at}} · {{s.creator_name or 'AI生成'}}</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-lg-8">
+          <h6 class="fw-bold"><i class="bi bi-building text-primary"></i> 行业背景</h6>
+          <p class="scenario-text">{{c.background or '-'}}</p>
+
+          <h6 class="fw-bold mt-3"><i class="bi bi-exclamation-triangle text-warning"></i> 客户痛点</h6>
+          <ul>{% for x in c.pain_points or [] %}<li>{{x}}</li>{% endfor %}</ul>
+
+          <h6 class="fw-bold mt-3"><i class="bi bi-search text-info"></i> 销售诊断问题</h6>
+          <ol>{% for x in c.diagnosis_questions or [] %}<li>{{x}}</li>{% endfor %}</ol>
+
+          <h6 class="fw-bold mt-3"><i class="bi bi-lightbulb text-success"></i> e签宝解决方案</h6>
+          <p class="scenario-text">{{c.solution or '-'}}</p>
+          <div>
+            {% for x in c.related_capabilities or [] %}<span class="badge bg-success-subtle text-success border me-1 mb-1">{{x}}</span>{% endfor %}
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="bg-light rounded-3 p-3 mb-3">
+            <h6 class="fw-bold"><i class="bi bi-chat-quote text-primary"></i> 销售话术</h6>
+            <p class="scenario-text small mb-0">{{c.sales_script or '-'}}</p>
+          </div>
+          <div class="bg-light rounded-3 p-3 mb-3">
+            <h6 class="fw-bold"><i class="bi bi-shield-question text-warning"></i> 常见异议</h6>
+            <p class="small mb-2"><strong>客户：</strong>{{c.objection or '-'}}</p>
+            <p class="scenario-text small mb-0"><strong>建议：</strong>{{c.objection_response or '-'}}</p>
+          </div>
+          <div class="border rounded-3 p-3">
+            <h6 class="fw-bold"><i class="bi bi-share text-success"></i> 群分享卡片</h6>
+            <textarea id="share-text-{{s.id}}" class="form-control small" rows="8" readonly>{% if c.share_summary %}【{{s.industry}}｜今日客户场景】
+{{c.title}}
+
+客户痛点：
+{% for x in c.pain_points or [] %}{{loop.index}}. {{x}}
+{% endfor %}
+e签宝解决思路：{{c.share_summary}}
+
+今日思考：{{(c.diagnosis_questions or ['客户目前是否存在类似问题？'])[0]}}{% else %}{{c.title}}
+{{c.solution}}{% endif %}</textarea>
+            <button class="btn btn-sm btn-outline-success mt-2" onclick="copyScenario('share-text-{{s.id}}', this)"><i class="bi bi-clipboard"></i> 复制分享卡片</button>
+          </div>
+        </div>
+      </div>
+      {% if s.sources %}
+      <div class="border-top mt-4 pt-3 small text-muted"><strong>参考资料：</strong>
+        {% for source in s.sources %}<span class="me-3">{{source.title or '未命名资料'}}{% if source.kb_name %}（{{source.kb_name}}）{% endif %}</span>{% endfor %}
+      </div>
+      {% else %}
+      <div class="border-top mt-4 pt-3 small text-muted"><i class="bi bi-info-circle"></i> 本条未检索到可展示的内部资料，分享前请由SFR确认事实和产品口径。</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card"><div class="empty-state"><i class="bi bi-stars"></i><p>还没有生成行业场景，先选择行业点击“AI生成今日场景”。</p></div></div>
+{% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+function generateIndustryScenario() {
+  var industry = document.getElementById('industry').value;
+  var btn = document.getElementById('generate-btn');
+  if (!industry) { alert('请先选择行业'); return; }
+  btn.disabled = true;
+  var original = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 正在检索并生成...';
+  var body = new URLSearchParams();
+  body.append('industry', industry);
+  fetch('{{url_for("api_generate_industry_scenario")}}', {method:'POST', body:body})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.ok) {
+        window.location.href = '{{url_for("industry_scenarios_page")}}?industry=' + encodeURIComponent(industry);
+      } else {
+        alert(data.msg || '生成失败，请检查 AI 配置');
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    })
+    .catch(function(err){
+      alert('请求失败：' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = original;
+    });
+}
+
+function copyScenario(id, btn) {
+  var text = document.getElementById(id).value;
+  navigator.clipboard.writeText(text).then(function(){
+    var old = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2"></i> 已复制';
+    setTimeout(function(){ btn.innerHTML = old; }, 1600);
+  }).catch(function(){
+    var el = document.getElementById(id); el.select(); document.execCommand('copy'); alert('已复制');
+  });
+}
+</script>
+{% endblock %}

@@ -203,6 +203,76 @@ def ai_generate_scenario_value(feature_name, category="", code=""):
     return {"scenario": "", "value_point": "", "error": get_ai_status().get("msg", "AI 无返回")}
 
 
+def ai_generate_industry_scenario(industry, recent_titles=None):
+    """根据行业检索资料并生成一张可供销售使用的客户场景卡片。"""
+    industry = (industry or "").strip()
+    if not industry:
+        return {"error": "请选择行业"}
+
+    recent_titles = [str(x).strip() for x in (recent_titles or []) if str(x).strip()]
+    query = f"{industry} 电子签章 电子合同 印章管理 合同管理 客户场景 行业痛点"
+    search_results = []
+    search_context = ""
+    try:
+        from ai_hub_client import search_all_accessible, format_search_results
+        found = search_all_accessible(query, max_results=8)
+        if isinstance(found, dict):
+            search_results = found.get("results", []) or []
+            search_context = format_search_results(search_results)
+    except Exception as e:
+        print(f"[ai_helper] industry search failed: {e}", file=sys.stderr, flush=True)
+
+    recent_text = "、".join(recent_titles[:20]) or "无"
+    system = (
+        "你是e签宝行业解决方案顾问。请基于检索资料，生成一张给SFR和商务使用的行业客户场景卡片。\n"
+        "要求：\n"
+        "1. 只选择一个具体、可销售的业务场景，不要写成泛泛的行业介绍。\n"
+        "2. 痛点必须落到合同签署、印章管控、审批、归档、存证、系统集成等业务环节。\n"
+        "3. e签宝解决方案只能使用已知产品能力，不得编造不存在的功能、客户案例或量化成效。\n"
+        "4. 没有可靠数字时不要编造百分比和金额；可用“缩短周期、减少人工跟进”等定性表达。\n"
+        "5. 生成内容要适合销售群分享，语言简洁、具体、可执行。\n"
+        "6. 只输出合法JSON，不要输出Markdown代码块。\n\n"
+        + ESIGN_PRODUCT_KNOWLEDGE
+    )
+    user = (
+        f"目标行业：{industry}\n"
+        f"近期已经生成过的场景标题（不得重复）：{recent_text}\n\n"
+        f"检索资料：\n{search_context or '本次没有检索到内部资料，请基于通用行业知识谨慎生成，并将sources留空。'}\n\n"
+        "请输出如下JSON结构：\n"
+        '{"title":"20字以内的场景标题",'
+        '"background":"2-3句话行业背景",'
+        '"pain_points":["痛点1","痛点2","痛点3"],'
+        '"customer_roles":["客户角色1","客户角色2"],'
+        '"diagnosis_questions":["销售诊断问题1","销售诊断问题2","销售诊断问题3"],'
+        '"solution":"一段结合2-4项e签宝能力的解决方案",'
+        '"related_capabilities":["关联能力1","关联能力2"],'
+        '"sales_script":"一段销售开场或价值话术",'
+        '"objection":"客户可能的一个异议",'
+        '"objection_response":"针对该异议的建议回应",'
+        '"share_summary":"适合发群的简短分享文案",'
+        '"sources":[{"title":"资料标题","kb_name":"来源知识库"}]}\n'
+        "sources只能从检索资料中选择，不能自行捏造链接；没有资料时返回空数组。"
+    )
+    raw = _llm_chat(system, user, max_tokens=1600)
+    if not raw:
+        return {"error": get_ai_status().get("msg", "AI 无返回")}
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned[cleaned.find("\n") + 1:]
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].strip()
+    try:
+        data = json.loads(cleaned)
+    except Exception as e:
+        return {"error": f"AI 返回格式无法解析：{e}"}
+    if not data.get("title") or not data.get("solution"):
+        return {"error": "AI 返回内容不完整，请重新生成"}
+    data["industry"] = industry
+    data["sources"] = data.get("sources") if isinstance(data.get("sources"), list) else []
+    data["search_query"] = query
+    return data
+
+
 def ai_explain_wrong(question, reference, user_answer, judge_reason=""):
     """商务答错时，生成标准正确答案与总结点评，帮助学习吸收。
 

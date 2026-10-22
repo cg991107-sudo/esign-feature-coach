@@ -201,6 +201,18 @@ CREATE TABLE IF NOT EXISTS answers (
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (judged_by) REFERENCES users(id)
 );
+CREATE TABLE IF NOT EXISTS industry_scenarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    industry TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    sources_json TEXT,
+    search_query TEXT,
+    status TEXT DEFAULT 'published',
+    created_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
 """
 
 # Postgres 版建表语句：AUTOINCREMENT -> SERIAL；时间默认值改用 to_char(now(), ...)
@@ -270,6 +282,18 @@ CREATE TABLE IF NOT EXISTS answers (
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (judged_by) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS industry_scenarios (
+    id SERIAL PRIMARY KEY,
+    industry TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    sources_json TEXT,
+    search_query TEXT,
+    status TEXT DEFAULT 'published',
+    created_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'),
+    FOREIGN KEY (created_by) REFERENCES users(id)
 );
 """
 
@@ -1178,6 +1202,99 @@ def api_ai_gen_scenario(fid):
             })
     except BaseException as e:
         return jsonify({"ok": False, "msg": f"生成异常: {type(e).__name__}: {e}"}), 200
+
+
+INDUSTRY_OPTIONS = [
+    "政府/公共服务", "国企央企", "能源", "制造业", "金融", "房地产",
+    "医疗", "教育", "人力资源", "物流供应链", "汽车及零部件", "互联网/科技"
+]
+
+
+def load_industry_scenarios(db, industry=""):
+    """读取行业场景卡片，并将 JSON 内容转换成模板可直接使用的字典。"""
+    if industry:
+        rows = db.execute(
+            """SELECT s.*, u.name creator_name FROM industry_scenarios s
+               LEFT JOIN users u ON u.id=s.created_by
+               WHERE s.industry=? ORDER BY s.created_at DESC, s.id DESC""", (industry,)
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """SELECT s.*, u.name creator_name FROM industry_scenarios s
+               LEFT JOIN users u ON u.id=s.created_by
+               ORDER BY s.created_at DESC, s.id DESC"""
+        ).fetchall()
+    cards = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["content"] = json.loads(item.get("content_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            item["content"] = {}
+        try:
+            item["sources"] = json.loads(item.get("sources_json") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            item["sources"] = []
+        cards.append(item)
+    return cards
+
+
+@app.route("/industry-scenarios")
+@require_login
+def industry_scenarios_page():
+    db = get_db()
+    industry = request.args.get("industry", "").strip()
+    cards = load_industry_scenarios(db, industry)
+    return render_template(
+        "industry_scenarios.html",
+        u=current_user(),
+        cards=cards,
+        selected_industry=industry,
+        industries=INDUSTRY_OPTIONS,
+    )
+
+
+@app.route("/api/industry-scenarios/generate", methods=["POST"])
+@require_role("sfr", "admin")
+def api_generate_industry_scenario():
+    """检索行业资料，调用 AI 生成并保存一张客户场景卡片。"""
+    industry = request.form.get("industry", "").strip()
+    if not industry:
+        return jsonify({"ok": False, "msg": "请选择行业"}), 400
+    if len(industry) > 50:
+        return jsonify({"ok": False, "msg": "行业名称过长"}), 400
+    db = get_db()
+    recent = db.execute(
+        "SELECT title FROM industry_scenarios WHERE industry=? ORDER BY id DESC LIMIT 20",
+        (industry,)
+    ).fetchall()
+    try:
+        from ai_helper import ai_generate_industry_scenario
+        data = ai_generate_industry_scenario(industry, [r["title"] for r in recent])
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"AI 生成异常：{type(e).__name__}: {e}"}), 200
+    if not data or data.get("error"):
+        return jsonify({"ok": False, "msg": data.get("error", "AI 生成失败，请检查 AI 配置")}), 200
+    u = current_user()
+    content_json = json.dumps(data, ensure_ascii=False)
+    sources_json = json.dumps(data.get("sources", []), ensure_ascii=False)
+    db.execute(
+        """INSERT INTO industry_scenarios
+           (industry,title,content_json,sources_json,search_query,status,created_by)
+           VALUES(?,?,?,?,?,'published',?)""",
+        (industry, data.get("title", "今日行业场景"), content_json, sources_json,
+         data.get("search_query", ""), u["id"])
+    )
+    db.commit()
+    saved = db.execute(
+        """SELECT s.*, u.name creator_name FROM industry_scenarios s
+           LEFT JOIN users u ON u.id=s.created_by
+           WHERE s.created_by=? ORDER BY s.id DESC LIMIT 1""", (u["id"],)
+    ).fetchone()
+    item = dict(saved) if saved else {"id": None}
+    item["content"] = data
+    item["sources"] = data.get("sources", [])
+    return jsonify({"ok": True, "card": item})
 
 
 @app.route("/quiz/create", methods=["GET", "POST"])
