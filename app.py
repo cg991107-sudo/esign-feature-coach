@@ -1382,6 +1382,22 @@ def api_generate_industry_scenario():
     return jsonify({"ok": True, "card": item})
 
 
+@app.route("/industry-scenarios/<int:sid>/delete", methods=["POST"])
+@require_role("admin")
+def delete_industry_scenario(sid):
+    """管理员删除行业场景及其学习记录。"""
+    db = get_db()
+    scenario = db.execute("SELECT id, title FROM industry_scenarios WHERE id=?", (sid,)).fetchone()
+    if not scenario:
+        flash("行业场景不存在或已删除", "warning")
+        return redirect(url_for("industry_scenarios_page"))
+    db.execute("DELETE FROM scenario_learning_records WHERE scenario_id=?", (sid,))
+    db.execute("DELETE FROM industry_scenarios WHERE id=?", (sid,))
+    db.commit()
+    flash(f"已删除行业场景：{scenario['title']}", "success")
+    return redirect(url_for("industry_scenarios_page"))
+
+
 @app.route("/quiz/create", methods=["GET", "POST"])
 @require_role("sfr", "admin")
 def quiz_create():

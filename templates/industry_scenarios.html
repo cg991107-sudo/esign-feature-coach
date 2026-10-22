@@ -43,7 +43,14 @@
         <span class="badge bg-primary me-2">{{s.industry}}</span>
         <span class="fw-bold">{{c.title or s.title}}</span>
       </div>
-      <span class="small text-muted">{{s.created_at}} · {{s.creator_name or 'AI生成'}}</span>
+      <div class="d-flex align-items-center gap-2">
+        <span class="small text-muted">{{s.created_at}} · {{s.creator_name or 'AI生成'}}</span>
+        {% if u and u.role == 'admin' %}
+        <form method="post" action="{{url_for('delete_industry_scenario', sid=s.id)}}" onsubmit="return confirm('确定删除这条行业场景吗？对应学习记录也会删除，不能恢复。')">
+          <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 删除</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
     <div class="card-body">
       <div class="row g-4">
