@@ -1558,20 +1558,29 @@ def quiz_answer(qid):
         db.commit()
         if correct:
             flash(f"✅ 全部答对，获得 {full_score} 分！", "success")
-        elif score > 0:
-            opts_text = "；".join(f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q)) if q["options"] else ""
-            db.execute("""UPDATE answers SET correct_answer=?, wrong_summary=?
-                          WHERE quiz_id=? AND user_id=?""",
-                       (ca_text, f"部分得分。正确答案：{opts_text}", qid, u["id"]))
-            db.commit()
-            flash(f"🌓 部分正确，命中 {score}/{full_score} 分。可查看正确答案。", "info")
         else:
-            opts_text = "；".join(f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q)) if q["options"] else ""
+            correct_options = "；".join(
+                f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q) if lett in correct_set
+            )
+            selected_options = "；".join(
+                f"{lett}. {txt}" for _, lett, txt in quiz_options_list(q) if lett in user_set
+            ) or "未选择"
+            explanation = q["answer_hint"] or "正确选项体现了该功能对应的客户场景和核心价值。"
+            wrong_summary = (
+                f"解析：{explanation} 你的选择：{selected_options}；正确答案：{correct_options}。"
+            )
+            if extra_set:
+                wrong_summary += f"多选了错误选项 {''.join(sorted(extra_set))}，因此本题不得分。"
+            elif score > 0:
+                wrong_summary += "漏选了正确选项，因此只能获得部分命中分。"
             db.execute("""UPDATE answers SET correct_answer=?, wrong_summary=?
                           WHERE quiz_id=? AND user_id=?""",
-                       (ca_text, f"正确答案：{opts_text}", qid, u["id"]))
+                       (correct_options, wrong_summary, qid, u["id"]))
             db.commit()
-            flash(f"❌ 答错，未得分。正确答案 {ca_text}，可在详情页查看。", "info")
+            if score > 0:
+                flash(f"🌓 部分正确，命中 {score}/{full_score} 分。可查看正确答案解析。", "info")
+            else:
+                flash("❌ 答错，未得分。请在考题详情页查看正确答案解析。", "info")
         return redirect(url_for("quiz_page"))
 
     # ---------- 问答（原有逻辑） ----------

@@ -15,6 +15,7 @@ import re
 import random
 import urllib.request
 import urllib.error
+from difflib import SequenceMatcher
 
 
 # 最近一次 AI 调用的状态（供前端/调试展示）
@@ -24,6 +25,31 @@ _LAST_AI_STATUS = {"ok": False, "msg": "尚未调用"}
 def get_ai_status():
     """返回最近一次 AI 调用状态，供前端展示「AI 是否可用」。"""
     return dict(_LAST_AI_STATUS)
+
+
+def _parse_json_response(raw):
+    """解析模型返回的 JSON，兼容偶尔包裹的 Markdown 代码块。"""
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned[cleaned.find("\n") + 1:]
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        return None
+
+
+def _options_are_too_similar(options):
+    """检测选项是否只是换词改写，避免出现看起来都正确的选项。"""
+    cleaned = [re.sub(r"[A-Da-d][.、:：)）]\s*", "", str(o)).strip() for o in options]
+    for i in range(len(cleaned)):
+        for j in range(i + 1, len(cleaned)):
+            if SequenceMatcher(None, cleaned[i], cleaned[j]).ratio() >= 0.78:
+                return True
+    return False
 
 
 def _llm_chat(system, user, max_tokens=600):
@@ -279,13 +305,12 @@ def ai_explain_wrong(question, reference, user_answer, judge_reason=""):
     返回 {"correct_answer": str, "summary": str}。AI 不可用时返回空字符串。
     """
     system = (
-        "你是e签宝的售前教练。商务在抢答考核中答错了，请基于题目、参考答案要点和商务的实际回答，"
-        "生成『标准正确答案』和『总结点评』，帮助商务理解吸收。\n"
+        "你是e签宝售前教练。商务答错了一道题，请用简单、直接的话帮助他学会。\n"
         "要求：\n"
-        "- correct_answer：用 1-2 句话给出该题目的标准正确回答，必须结合 e签宝 的具体产品功能"
-        "（如实名认证、电子合同签署、数字证书、电子印章、存证出证、API 集成等），不要泛泛而谈\n"
-        "- summary：3-4 句话总结：①商务为什么答错或答得不足 ②本功能对应的 e签宝 核心产品能力与客户价值 ③一句便于记忆的要点\n"
-        "- 语气：鼓励式、专业、贴近售前实战"
+        "- correct_answer：1-2句话，直接说正确答案，必须对应题目和参考要点。\n"
+        "- summary：2-3句话，说明错在哪里、记住哪个e签宝能力和客户价值。\n"
+        "- 不要重复题干，不要写长篇理论，不要编造数字或产品能力。\n"
+        "- 只输出JSON。"
     )
     user = (
         f"题目：{question}\n"
@@ -298,21 +323,19 @@ def ai_explain_wrong(question, reference, user_answer, judge_reason=""):
         "只输出 JSON。"
     )
     raw = _llm_chat(system, user, max_tokens=500)
-    if raw:
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned[cleaned.find("\n") + 1:]
-            if cleaned.rstrip().endswith("```"):
-                cleaned = cleaned.rstrip()[:-3].strip()
-        try:
-            d = json.loads(cleaned)
-            ca = d.get("correct_answer", "").strip()
-            sm = d.get("summary", "").strip()
-            if ca or sm:
-                return {"correct_answer": ca, "summary": sm}
-        except Exception:
-            pass
-    return {"correct_answer": "", "summary": ""}
+    d = _parse_json_response(raw)
+    if d:
+        ca = str(d.get("correct_answer", "")).strip()
+        sm = str(d.get("summary", "")).strip()
+        if ca or sm:
+            return {"correct_answer": ca, "summary": sm}
+    # 没有配置 AI 或调用失败时，也必须给商务留下可学习的答案和解析。
+    fallback_answer = reference.strip() if reference else "请围绕题目说明客户场景、核心痛点和对应的 e签宝 产品能力。"
+    fallback_summary = (
+        "你的回答没有完整覆盖本题的关键要点。"
+        "复习时先记住：先说客户痛点，再说对应的 e签宝 能力，最后说明给客户带来的价值。"
+    )
+    return {"correct_answer": fallback_answer, "summary": fallback_summary}
 
 
 def ai_generate_quiz(feature_name, scenario, value_point, qtype="multi"):
@@ -326,44 +349,47 @@ def ai_generate_quiz(feature_name, scenario, value_point, qtype="multi"):
 
 def _generate_multi(feature_name, scenario, value_point):
     system = (
-        "你是 e签宝 电子签名/电子合同行业的资深售前专家，正在帮 SFR 出考核真题。\n"
-        "你的目标是出一道**考察具体价值点**、而不是空泛的多选题：\n"
-        "1. 题目必须点名「功能名」，并聚焦该功能为客户带来的**具体价值**（如某场景效率提升、某合规能力）。\n"
-        "2. 选项必须是从功能价值点衍生的**具体陈述**，不能是「该功能很好/很高效」这种空话。\n"
-        "3. 正确项 = 该功能真实具备、可从「使用场景/价值点」中直接支撑的陈述。\n"
-        "4. 干扰项 = 与该功能**似是而非/张冠李戴**的陈述（把别的功能的能力或该功能不具备的能力写成选项），要能迷惑但明显可对应当前功能内容排除。\n"
-        "5. 设 4 个选项，其中**恰好 2 个正确**（correction_answer 含 2 个字母）。\n"
-        "6. reference 用一句话点出 2 个正确项依据的价值点。"
+        "你是 e签宝售前教练，正在给商务做日常学习题。\n"
+        "请出一道简单、直接、只考一个知识点的多选题。\n"
+        "规则：\n"
+        "1. 题干控制在25字以内，只问一个事实，不要多层条件、长定语、括号补充或‘综合分析’。推荐句式：‘关于【功能】，哪些做法正确？’\n"
+        "2. 固定4个选项，每个控制在20字以内，每项只表达一个事实，使用口语化短句。\n"
+        "3. 恰好2个正确选项；正确项必须能从给定场景或价值点直接得到。\n"
+        "4. 两个正确项分别考察不同价值；两个错误项要与正确项有明显语义差异，不能只是替换一两个词，也不能让人感觉同样合理。\n"
+        "5. 错误项应直接表达不具备的能力、错误使用方式或明显不适用的场景，不要用‘完全、一定、90%’等词硬设陷阱。\n"
+        "6. reference 用1句话说明两个正确项各自为什么正确，作为答错后的学习解析。"
     )
     user = (
         f"功能名称：{feature_name}\n"
         f"使用场景：{scenario or '（未填写）'}\n"
         f"价值点：{value_point or '（未填写）'}\n\n"
-        "请根据以上『使用场景、价值点』，生成 1 道多选题，严格输出 JSON：\n"
-        '{"question":"含功能名、考察具体价值的题干（多选）",'
-        '"options":["A","B","C","D"],'
+        "请根据以上内容生成1道多选题，严格输出 JSON：\n"
+        '{"question":"25字以内、容易理解的短题干",'
+        '"options":["20字以内且互相差异明显的选项1","选项2","选项3","选项4"],'
         '"correct_answer":"恰好2个大写字母，如 AC",'
-        '"reference":"正确2项各自对应的价值点理由"}\n'
+        '"reference":"1-2句话的正确答案解析"}\n'
         "只输出 JSON，不要额外文字。"
     )
     raw = _llm_chat(system, user)
-    if raw:
+    d = _parse_json_response(raw)
+    if d:
         try:
-            d = json.loads(raw)
             q = d.get("question", "").strip()
             opts = [str(o).strip() for o in (d.get("options") or []) if str(o).strip()][:4]
             ca = "".join(c for c in (d.get("correct_answer") or "").upper() if c in "ABCD")
             # 校验：至少2选项、答案至少1个且不越界、答案字母必须对应已有选项
-            if q and len(opts) >= 2 and ca and all(0 <= ord(c) - 65 < len(opts) for c in ca):
+            if (q and len(q) <= 30 and len(opts) == 4 and all(len(o) <= 25 for o in opts)
+                    and len(set(opts)) == 4 and not _options_are_too_similar(opts)
+                    and ca and all(0 <= ord(c) - 65 < len(opts) for c in ca)):
                 # 去掉重复字母、强制按选项长度裁剪
                 seen = set(); ca2 = ""
                 for c in ca:
                     if c not in seen and 0 <= ord(c) - 65 < len(opts):
                         seen.add(c); ca2 += c
-                if ca2:
+                if len(ca2) == 2:
                     return {
                         "question": q,
-                        "reference": d.get("reference", "").strip(),
+                        "reference": str(d.get("reference", "")).strip(),
                         "options": opts,
                         "correct_answer": "".join(sorted(ca2)),
                     }
@@ -416,8 +442,8 @@ def _fallback_multi(name, scenario, value_point):
             if len(cand) < 2 and not any(g in p for p in cand):
                 cand.append(g)
     rng.shuffle(cand)
-    correct_a = cand[0][:40]
-    correct_b = cand[1][:40]
+    correct_a = re.split(r"[，,；;。]", cand[0])[0].strip()[:24]
+    correct_b = re.split(r"[，,；;。]", cand[1])[0].strip()[:24]
     # 若两个正确项重复，补足不同表述
     if correct_a == correct_b:
         for g in ["降低用纸与邮寄成本", "全流程存证、司法采信", "签署流程秒级完成"]:
@@ -427,16 +453,14 @@ def _fallback_multi(name, scenario, value_point):
 
     # 干扰项库（对该功能必然为假的陈述，针对电子签章业务）
     distract_pool = [
-        f"「{name}」仅支持线下纸质盖章，无法在线完成（与该功能无关）",
-        f"「{name}」不兼容手机端，只能在电脑上使用（错误）",
-        f"「{name}」与实名认证、电子存证等能力完全无关（错误）",
-        f"「{name}」生成的签署文件不具备法律效力，司法不采信（错误）",
-        f"「{name}」需要层层人工审批数天才能走完一份签署（与该功能提效相反）",
-        f"「{name}」仅面向小微企业，大型集团企业无法使用（错误）",
-        f"「{name}」每次签署都必须额外线下邮寄纸质原件（与线上签署相反）",
-        f"「{name}」只能单人独立操作，不支持多人/多部门协同（错误）",
-        f"「{name}」不提供任何存证或审计凭证，无法追溯（错误）",
-        f"「{name}」仅能签署固定格式文本，不支持合同、附件等（错误）",
+        "只能线下盖章，不能线上处理",
+        "不支持手机端操作",
+        "不能留存签署记录",
+        "只能单人操作，不能多人协同",
+        "必须邮寄纸质原件",
+        "无法用于大型集团客户",
+        "不支持异地签署",
+        "不提供电子存证",
     ]
     rng.shuffle(distract_pool)
     d1, d2 = distract_pool[0], distract_pool[1]
@@ -445,8 +469,8 @@ def _fallback_multi(name, scenario, value_point):
     rng.shuffle(opts)
     correct = "".join(sorted([chr(65 + opts.index(o)) for o in (correct_a, correct_b)]))
     return {
-        "question": f"关于「{name}」功能，以下哪些说法正确体现了它的价值或能力？（多选）",
-        "reference": f"正确：{correct_a}；{correct_b}",
+        "question": f"关于「{name}」，以下哪两项正确？",
+        "reference": f"正确答案是对应的两项：{correct_a}；{correct_b}。它们分别体现了该功能的实际场景和客户价值。",
         "options": opts,
         "correct_answer": correct,
     }
@@ -454,25 +478,24 @@ def _fallback_multi(name, scenario, value_point):
 
 def _generate_qa(feature_name, scenario, value_point):
     system = (
-        "你是 e签宝 电子签名/电子合同行业的资深售前专家，正在帮 SFR 出考核真题。\n"
-        "根据功能的使用场景与价值点，出一道能**考察商务是否真正理解该功能**的开放问答题：\n"
-        "1. 题目点名功能名，引导商务讲出：该功能解决了什么客户场景/痛点 + 能带来哪些可量化的核心价值。\n"
-        "2. 不要出泛泛的『说说这个功能』，要给出具体切入角度。\n"
-        "3. reference 给出 3 个独立的关键得分点（对应具体价值/场景），SFR 可据此判分。"
+        "你是 e签宝售前教练，正在给商务做日常学习题。\n"
+        "请出一道简单的开放问答题，只考一个客户场景或一个产品价值。\n"
+        "题目控制在35字以内，要求商务说清：客户痛点 + 对应的 e签宝 能力。\n"
+        "reference 用2-3个短要点说明标准答案，不要长篇理论，不要编造数字。"
     )
     user = (
         f"功能名称：{feature_name}\n"
         f"使用场景：{scenario or '（未填写）'}\n"
         f"价值点：{value_point or '（未填写）'}\n\n"
         "请严格输出 JSON：\n"
-        '{"question":"考察具体场景+价值的问题",'
-        '"reference":"3个关键得分点，用分号分隔"}\n'
+        '{"question":"35字以内的短问题",'
+        '"reference":"2-3个短的标准答案要点，用分号分隔"}\n'
         "只输出 JSON。"
     )
     raw = _llm_chat(system, user)
-    if raw:
+    d = _parse_json_response(raw)
+    if d:
         try:
-            d = json.loads(raw)
             q, ref = d.get("question", "").strip(), d.get("reference", "").strip()
             if q:
                 return {"question": q, "reference": ref}
@@ -491,14 +514,8 @@ def _fallback_generate(name, scenario, value_point):
     rng = random.Random(random.SystemRandom().randint(0, 1 << 30))
     ordered = list(points)
     rng.shuffle(ordered)
-    angles = [
-        f"它主要解决了客户怎样的业务场景或痛点",
-        f"它给客户带来的核心价值主要体现在哪些方面",
-        f"结合使用场景，说明它相比传统方式的关键改进",
-    ]
     q = (
-        f"关于「{name}」功能：请结合它的实际使用场景，说明{angles[0]}，"
-        f"并重点讲清它带来的价值（如：{ordered[0][:30]}）具体如何体现？"
+        f"关于「{name}」：客户遇到相关问题时，你会如何说明它的作用？"
     )
     ref = "；".join(points[:3]) or (value_point or "该功能的使用场景与价值")
     return {"question": q, "reference": ref}
