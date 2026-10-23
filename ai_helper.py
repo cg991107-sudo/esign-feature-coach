@@ -52,6 +52,37 @@ def _options_are_too_similar(options):
     return False
 
 
+def _scenario_phrase(scenario, fallback="客户需要提升签署效率"):
+    """提炼一段适合放进题干的场景描述，避免题目只剩功能名。"""
+    text = re.sub(r"\s+", " ", str(scenario or "")).strip()
+    if not text:
+        return fallback
+    # 题干保留业务动作/痛点，不把整段场景说明全部塞进题目。
+    text = re.split(r"[。；;\n]", text)[0].strip(" ，,：:")
+    return text[:42] if text else fallback
+
+
+def _question_contains_scenario(question, scenario):
+    """判断题干是否至少带入一个场景关键词，拦截泛泛的功能记忆题。"""
+    if not scenario:
+        return True
+    q = re.sub(r"\s+", "", str(question or ""))
+    phrase = _scenario_phrase(scenario, "")
+    if not phrase:
+        return True
+    # 连续四字片段比单字更能证明题干确实引用了业务场景。
+    compact = re.sub(r"\s+", "", phrase)
+    chunks = [compact[i:i + 4] for i in range(max(0, len(compact) - 3))]
+    return any(chunk in q for chunk in chunks if len(chunk) >= 3)
+
+
+def _question_contains_feature(question, feature_name):
+    """题干必须点名当前功能，避免生成成通用电子签题。"""
+    q = re.sub(r"\s+", "", str(question or ""))
+    name = re.sub(r"\s+", "", str(feature_name or ""))
+    return not name or name in q
+
+
 def _llm_chat(system, user, max_tokens=600):
     """调用 OpenAI 兼容接口，返回文本；任何异常都不会向外冒。"""
     global _LAST_AI_STATUS
@@ -350,21 +381,21 @@ def ai_generate_quiz(feature_name, scenario, value_point, qtype="multi"):
 def _generate_multi(feature_name, scenario, value_point):
     system = (
         "你是 e签宝售前教练，正在给商务做日常学习题。\n"
-        "请出一道简单、直接、只考一个知识点的多选题。\n"
+        "请出一道基于真实销售场景、简单直接、只考一个知识点的多选题。\n"
         "规则：\n"
-        "1. 题干控制在25字以内，只问一个事实，不要多层条件、长定语、括号补充或‘综合分析’。推荐句式：‘关于【功能】，哪些做法正确？’\n"
+        "1. 题干控制在70字以内，必须同时出现具体功能名称，并带入给定的客户身份/业务动作/痛点中的至少一项，再提出一个明确问题。不能只写通用的电子签题。推荐句式：‘客户在【业务场景】遇到【痛点】时，使用【功能】哪些做法正确？’\n"
         "2. 固定4个选项，每个控制在20字以内，每项只表达一个事实，使用口语化短句。\n"
-        "3. 恰好2个正确选项；正确项必须能从给定场景或价值点直接得到。\n"
+        "3. 恰好2个正确选项；正确项必须对应‘这个具体功能’在场景中的实际处理方式或客户收益，不能只写泛泛的‘提升效率、加强管理’。\n"
         "4. 两个正确项分别考察不同价值；两个错误项要与正确项有明显语义差异，不能只是替换一两个词，也不能让人感觉同样合理。\n"
         "5. 错误项应直接表达不具备的能力、错误使用方式或明显不适用的场景，不要用‘完全、一定、90%’等词硬设陷阱。\n"
-        "6. reference 用1句话说明两个正确项各自为什么正确，作为答错后的学习解析。"
+        "6. reference 用2句话说明：客户在什么场景下遇到什么问题，以及这个具体功能的哪项能力如何解决问题，作为答错后的学习解析。"
     )
     user = (
         f"功能名称：{feature_name}\n"
         f"使用场景：{scenario or '（未填写）'}\n"
         f"价值点：{value_point or '（未填写）'}\n\n"
         "请根据以上内容生成1道多选题，严格输出 JSON：\n"
-        '{"question":"25字以内、容易理解的短题干",'
+        '{"question":"70字以内、同时包含功能名称和客户场景的题干",'
         '"options":["20字以内且互相差异明显的选项1","选项2","选项3","选项4"],'
         '"correct_answer":"恰好2个大写字母，如 AC",'
         '"reference":"1-2句话的正确答案解析"}\n'
@@ -378,7 +409,9 @@ def _generate_multi(feature_name, scenario, value_point):
             opts = [str(o).strip() for o in (d.get("options") or []) if str(o).strip()][:4]
             ca = "".join(c for c in (d.get("correct_answer") or "").upper() if c in "ABCD")
             # 校验：至少2选项、答案至少1个且不越界、答案字母必须对应已有选项
-            if (q and len(q) <= 30 and len(opts) == 4 and all(len(o) <= 25 for o in opts)
+            if (q and len(q) <= 70 and _question_contains_feature(q, feature_name)
+                    and _question_contains_scenario(q, scenario)
+                    and len(opts) == 4 and all(len(o) <= 25 for o in opts)
                     and len(set(opts)) == 4 and not _options_are_too_similar(opts)
                     and ca and all(0 <= ord(c) - 65 < len(opts) for c in ca)):
                 # 去掉重复字母、强制按选项长度裁剪
@@ -468,9 +501,10 @@ def _fallback_multi(name, scenario, value_point):
     opts = [correct_a, correct_b, d1, d2]
     rng.shuffle(opts)
     correct = "".join(sorted([chr(65 + opts.index(o)) for o in (correct_a, correct_b)]))
+    scene = _scenario_phrase(scenario, "客户遇到签署效率低、过程难留痕的问题")
     return {
-        "question": f"关于「{name}」，以下哪两项正确？",
-        "reference": f"正确答案是对应的两项：{correct_a}；{correct_b}。它们分别体现了该功能的实际场景和客户价值。",
+        "question": f"客户在{scene}时，关于「{name}」哪些做法正确？",
+        "reference": f"本题场景是：客户在{scene}。正确答案是{correct_a}；{correct_b}，分别对应解决客户问题的实际做法和收益。",
         "options": opts,
         "correct_answer": correct,
     }
@@ -479,8 +513,8 @@ def _fallback_multi(name, scenario, value_point):
 def _generate_qa(feature_name, scenario, value_point):
     system = (
         "你是 e签宝售前教练，正在给商务做日常学习题。\n"
-        "请出一道简单的开放问答题，只考一个客户场景或一个产品价值。\n"
-        "题目控制在35字以内，要求商务说清：客户痛点 + 对应的 e签宝 能力。\n"
+        "请出一道基于真实客户业务场景的开放问答题，只考这个具体功能在场景中的一个关键价值。\n"
+        "题目控制在70字以内，必须同时出现功能名称和客户业务动作或痛点，要求商务说清：客户遇到什么问题 + 这个功能的哪项能力如何解决。\n"
         "reference 用2-3个短要点说明标准答案，不要长篇理论，不要编造数字。"
     )
     user = (
@@ -497,7 +531,7 @@ def _generate_qa(feature_name, scenario, value_point):
     if d:
         try:
             q, ref = d.get("question", "").strip(), d.get("reference", "").strip()
-            if q:
+            if q and _question_contains_feature(q, feature_name) and _question_contains_scenario(q, scenario):
                 return {"question": q, "reference": ref}
         except Exception:
             pass
@@ -514,10 +548,9 @@ def _fallback_generate(name, scenario, value_point):
     rng = random.Random(random.SystemRandom().randint(0, 1 << 30))
     ordered = list(points)
     rng.shuffle(ordered)
-    q = (
-        f"关于「{name}」：客户遇到相关问题时，你会如何说明它的作用？"
-    )
-    ref = "；".join(points[:3]) or (value_point or "该功能的使用场景与价值")
+    scene = _scenario_phrase(scenario, "客户遇到签署效率低、过程难留痕的问题")
+    q = f"客户在{scene}时，你会如何介绍「{name}」？"
+    ref = f"先说明场景问题：{scene}；再说明功能作用：" + ("；".join(points[:2]) or (value_point or "该功能的使用场景与价值"))
     return {"question": q, "reference": ref}
 
 
