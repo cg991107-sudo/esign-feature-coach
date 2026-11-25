@@ -1063,14 +1063,11 @@ def normalize_option_text(text):
 
 
 def get_weak_features(db, limit=None):
-    """找出错误率大于50%的功能，供每日错题补强使用。
+    """列出所有已经产生答题记录的功能，供SFR手动选择补强对象。
 
-    多选题按页面展示口径统计：总回答数 - 答对数 = 未答对数，避免历史记录
-    中 is_correct 为空时出现“页面看起来超过50%，系统却不入选”的不一致。
-    问答题仍只统计已经完成判定的答题，避免把待人工判定误算为错误。
-    同一功能当天已经生成过补强题，或当前还有进行中的题时，不重复生成。
+    错误率只用于展示和排序，不再把功能隐藏在列表之外。多选题按页面展示
+    口径统计：总回答数 - 答对数 = 未答对数；问答题仍只统计已完成判定的答题。
     """
-    today_start = china_now().strftime("%Y-%m-%d 00:00:00")
     sql = """SELECT f.id, f.name, f.scenario, f.value_point,
                   COUNT(a.id) AS attempts,
                   SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS wrong_count,
@@ -1080,22 +1077,10 @@ def get_weak_features(db, limit=None):
            JOIN quizzes q ON q.feature_id=f.id
            JOIN answers a ON a.quiz_id=q.id
            WHERE (q.quiz_type='multi' OR a.is_correct IS NOT NULL)
-             AND NOT EXISTS (
-                 SELECT 1 FROM quizzes active_q
-                 WHERE active_q.feature_id=f.id AND active_q.status='active'
-             )
-             AND NOT EXISTS (
-                 SELECT 1 FROM quizzes today_q
-                 WHERE today_q.feature_id=f.id
-                   AND today_q.quiz_mode='reinforce'
-                   AND today_q.created_at >= ?
-             )
            GROUP BY f.id, f.name, f.scenario, f.value_point
-           HAVING CAST(SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
-                    / COUNT(a.id) > 0.5
            ORDER BY error_rate DESC, wrong_count DESC, MAX(a.answered_at) DESC
            """
-    params = [today_start]
+    params = []
     if limit is not None:
         sql += " LIMIT ?"
         params.append(int(limit))
@@ -1275,7 +1260,7 @@ def quiz_reinforce_generate():
         flash("请先勾选需要补强的功能，最多选择5个。", "warning")
         return redirect(url_for("quiz_page"))
     if not feats:
-        flash("所选功能已不满足补强条件，系统未生成题目。", "info")
+        flash("所选功能当前没有可用的场景/价值内容，系统未生成题目。", "info")
         return redirect(url_for("quiz_page"))
 
     u = current_user()
