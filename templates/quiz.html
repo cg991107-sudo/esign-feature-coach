@@ -4,9 +4,29 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h3 class="fw-bold mb-0"><i class="bi bi-patch-question text-primary"></i> 抢答考核</h3>
   {% if u and u.role in ('sfr','admin') %}
-  <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
+  <div class="d-flex gap-2">
+    {% if weak_features %}
+    <form method="post" action="{{url_for('quiz_reinforce_generate')}}" class="d-inline">
+      <button class="btn btn-warning" title="按功能历史错误率生成最多5道补强题"
+              onclick="return confirm('将按错误率最高的功能生成今日最多5道补强题，确认继续？')">
+        <i class="bi bi-arrow-repeat"></i> 生成今日补强题（{{weak_features|length}}）
+      </button>
+    </form>
+    {% endif %}
+    <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
+  </div>
   {% endif %}
 </div>
+
+{% if u and u.role in ('sfr','admin') and weak_features %}
+<div class="alert alert-warning d-flex align-items-start gap-2">
+  <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+  <div><b>发现 {{weak_features|length}} 个需要补强的功能：</b>
+    {% for f in weak_features %}{{f.name}}（错误率 {{(f.error_rate * 100)|round(0)|int}}%）{% if not loop.last %}、{% endif %}{% endfor %}。
+    点击“生成今日补强题”，系统会为销售生成最多5道针对性题目。
+  </div>
+</div>
+{% endif %}
 
 {% if u and u.role == 'business' %}
 <div class="alert alert-info"><i class="bi bi-megaphone"></i> 商务同学看这里：点击考题下方的「我要抢答」提交回答，<b>系统用 AI 自动判分</b>，答对自动+1分。每题只能答一次，发布当天 <b>23:59 前</b>有效，次日不能再答！</div>
@@ -35,6 +55,7 @@
           {% if q.status=='active' and not q.is_expired %}进行中{% else %}已截止{% endif %}
         </span>
         {% if q.feature_name %}<span class="badge bg-light text-dark border ms-1">{{q.feature_name}}</span>{% endif %}
+        {% if q.quiz_mode=='reinforce' %}<span class="badge bg-warning text-dark ms-1"><i class="bi bi-arrow-repeat"></i> 错题补强</span>{% endif %}
         <span class="badge bg-info text-dark ms-1">{% if q.quiz_type=='multi' %}多选题{% else %}问答题{% endif %}</span>
         {% if q.status=='active' and not q.is_expired and q.deadline_ts %}
         <span class="badge bg-warning text-dark ms-1 countdown" data-deadline="{{q.deadline_ts}}">--</span>
