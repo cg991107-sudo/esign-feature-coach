@@ -21,6 +21,10 @@
   </div>
   <div class="card-body">
     <form method="post" action="{{url_for('quiz_reinforce_generate')}}" onsubmit="return checkReinforceSelection()">
+      <div class="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+        <button class="btn btn-warning"><i class="bi bi-lightning-charge"></i> 为选中功能生成补强题</button>
+        <span class="small text-muted">已选择 <b id="reinforce-count-top">0</b>/5 个</span>
+      </div>
       <div class="row g-2">
         {% for f in weak_features %}
         <div class="col-md-6 col-xl-4">
@@ -38,7 +42,6 @@
         {% endfor %}
       </div>
       <div class="d-flex align-items-center gap-3 mt-3">
-        <button class="btn btn-warning"><i class="bi bi-lightning-charge"></i> 为选中功能生成补强题</button>
         <span class="small text-muted">已选择 <b id="reinforce-count">0</b>/5 个</span>
       </div>
     </form>
@@ -233,6 +236,7 @@ document.querySelectorAll('.reinforce-checkbox').forEach(function(box){
   box.addEventListener('change',function(){
     var n=document.querySelectorAll('.reinforce-checkbox:checked').length;
     document.getElementById('reinforce-count').textContent=n;
+    document.getElementById('reinforce-count-top').textContent=n;
     if(n>=5){
       document.querySelectorAll('.reinforce-checkbox:not(:checked)').forEach(function(other){other.disabled=true;});
     }else{
