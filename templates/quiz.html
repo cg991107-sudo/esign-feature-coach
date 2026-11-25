@@ -17,7 +17,7 @@
 <div class="card border-warning mb-4" id="reinforce-panel">
   <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-arrow-repeat"></i> 错题补强功能选择</span>
-    <span class="small text-muted">错误率大于50%，每天最多选择5个</span>
+    <span class="small text-muted">已答题功能全部列出，错误率仅作参考，每天最多选择5个</span>
   </div>
   <div class="card-body">
     <form method="post" action="{{url_for('quiz_reinforce_generate')}}" onsubmit="return checkReinforceSelection()">
@@ -29,6 +29,7 @@
             <span>
               <b>{{f.name}}</b><br>
               <small class="text-muted">{{f.attempts}}次答题 · {{f.wrong_count}}次未答对 · 错误率 {{(f.error_rate * 100)|round(0)|int}}%</small>
+              {% if f.error_rate > 0.5 %}<span class="badge bg-danger-subtle text-danger">建议优先补强</span>{% else %}<span class="badge bg-light text-secondary border">可自主选择</span>{% endif %}
             </span>
           </label>
         </div>
@@ -44,7 +45,7 @@
 {% elif u and u.role in ('sfr','admin') %}
 <div class="alert alert-light border d-flex align-items-start gap-2">
   <i class="bi bi-info-circle text-primary mt-1"></i>
-  <div>当前暂未识别到错误率大于50%的功能，暂时没有可选择的补强对象。</div>
+  <div>当前还没有产生答题记录的功能，暂时没有可选择的补强对象。</div>
 </div>
 {% endif %}
 
