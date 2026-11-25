@@ -1063,22 +1063,24 @@ def normalize_option_text(text):
 
 
 def get_weak_features(db, limit=None):
-    """列出所有已经产生答题记录的功能，供SFR手动选择补强对象。
+    """列出功能清单中的全部功能，供SFR手动选择补强对象。
 
     错误率只用于展示和排序，不再把功能隐藏在列表之外。多选题按页面展示
     口径统计：总回答数 - 答对数 = 未答对数；问答题仍只统计已完成判定的答题。
+    没有答题记录的功能也保留在列表中，显示为暂无答题数据。
     """
     sql = """SELECT f.id, f.name, f.scenario, f.value_point,
                   COUNT(a.id) AS attempts,
-                  SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS wrong_count,
-                  CAST(SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
-                    / COUNT(a.id) AS error_rate
+                  SUM(CASE WHEN a.id IS NULL THEN 0 WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS wrong_count,
+                  CASE WHEN COUNT(a.id)=0 THEN 0 ELSE
+                    CAST(SUM(CASE WHEN a.id IS NULL THEN 0 WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
+                    / COUNT(a.id) END AS error_rate
            FROM features f
-           JOIN quizzes q ON q.feature_id=f.id
-           JOIN answers a ON a.quiz_id=q.id
-           WHERE (q.quiz_type='multi' OR a.is_correct IS NOT NULL)
+           LEFT JOIN quizzes q ON q.feature_id=f.id
+           LEFT JOIN answers a ON a.quiz_id=q.id
+             AND (q.quiz_type='multi' OR a.is_correct IS NOT NULL)
            GROUP BY f.id, f.name, f.scenario, f.value_point
-           ORDER BY error_rate DESC, wrong_count DESC, MAX(a.answered_at) DESC
+           ORDER BY error_rate DESC, attempts DESC, f.name ASC
            """
     params = []
     if limit is not None:
