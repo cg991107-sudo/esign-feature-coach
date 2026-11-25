@@ -1062,7 +1062,7 @@ def normalize_option_text(text):
     return re.sub(r"^(?:[A-Da-d]\s*[.．、:：]\s*)+", "", value).strip()
 
 
-def get_weak_features(db, limit=5):
+def get_weak_features(db, limit=None):
     """找出错误率大于50%的功能，供每日错题补强使用。
 
     多选题按页面展示口径统计：总回答数 - 答对数 = 未答对数，避免历史记录
@@ -1071,8 +1071,7 @@ def get_weak_features(db, limit=5):
     同一功能当天已经生成过补强题，或当前还有进行中的题时，不重复生成。
     """
     today_start = china_now().strftime("%Y-%m-%d 00:00:00")
-    return db.execute(
-        """SELECT f.id, f.name, f.scenario, f.value_point,
+    sql = """SELECT f.id, f.name, f.scenario, f.value_point,
                   COUNT(a.id) AS attempts,
                   SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS wrong_count,
                   CAST(SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
@@ -1095,7 +1094,12 @@ def get_weak_features(db, limit=5):
            HAVING CAST(SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
                     / COUNT(a.id) > 0.5
            ORDER BY error_rate DESC, wrong_count DESC, MAX(a.answered_at) DESC
-           LIMIT ?""", (today_start, int(limit))).fetchall()
+           """
+    params = [today_start]
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    return db.execute(sql, params).fetchall()
 
 @app.route("/quiz")
 @require_login
@@ -1149,7 +1153,7 @@ def quiz_page():
     section_order = {"pending": 0, "answered": 1, "active": 0, "expired": 2}
     quizzes.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     quizzes.sort(key=lambda item: section_order.get(item["section_key"], 9))
-    weak_features = get_weak_features(db, 5) if u and u["role"] in ("sfr", "admin") else []
+    weak_features = get_weak_features(db) if u and u["role"] in ("sfr", "admin") else []
     return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers,
                            now_ts=now_ts, weak_features=weak_features)
 
@@ -1260,9 +1264,18 @@ def quiz_auto_generate():
 def quiz_reinforce_generate():
     """每天从错误率大于50%的功能中生成最多5道针对性补强题。"""
     db = get_db()
-    feats = get_weak_features(db, 5)
+    all_weak_features = get_weak_features(db)
+    selected_fids = [int(x) for x in request.form.getlist("fids") if x.isdigit()]
+    if len(selected_fids) > 5:
+        flash("每天最多选择5个功能生成错题补强题，请减少选择后再试。", "warning")
+        return redirect(url_for("quiz_page"))
+    candidates = {int(f["id"]): f for f in all_weak_features}
+    feats = [candidates[fid] for fid in selected_fids if fid in candidates]
+    if not selected_fids:
+        flash("请先勾选需要补强的功能，最多选择5个。", "warning")
+        return redirect(url_for("quiz_page"))
     if not feats:
-        flash("当前没有错误率超过50%的待补强功能，暂不生成补强题。", "info")
+        flash("所选功能已不满足补强条件，系统未生成题目。", "info")
         return redirect(url_for("quiz_page"))
 
     u = current_user()
