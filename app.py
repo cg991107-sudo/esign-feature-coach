@@ -1065,20 +1065,22 @@ def normalize_option_text(text):
 def get_weak_features(db, limit=5):
     """找出错误率大于50%的功能，供每日错题补强使用。
 
-    只统计已经完成判定的答题；多选题只要没有完整答对，就计入错误。
+    多选题按页面展示口径统计：总回答数 - 答对数 = 未答对数，避免历史记录
+    中 is_correct 为空时出现“页面看起来超过50%，系统却不入选”的不一致。
+    问答题仍只统计已经完成判定的答题，避免把待人工判定误算为错误。
     同一功能当天已经生成过补强题，或当前还有进行中的题时，不重复生成。
     """
     today_start = china_now().strftime("%Y-%m-%d 00:00:00")
     return db.execute(
         """SELECT f.id, f.name, f.scenario, f.value_point,
                   COUNT(a.id) AS attempts,
-                  SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) AS wrong_count,
-                  CAST(SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) AS REAL)
+                  SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS wrong_count,
+                  CAST(SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
                     / COUNT(a.id) AS error_rate
            FROM features f
            JOIN quizzes q ON q.feature_id=f.id
            JOIN answers a ON a.quiz_id=q.id
-           WHERE a.is_correct IS NOT NULL
+           WHERE (q.quiz_type='multi' OR a.is_correct IS NOT NULL)
              AND NOT EXISTS (
                  SELECT 1 FROM quizzes active_q
                  WHERE active_q.feature_id=f.id AND active_q.status='active'
@@ -1090,7 +1092,7 @@ def get_weak_features(db, limit=5):
                    AND today_q.created_at >= ?
              )
            GROUP BY f.id, f.name, f.scenario, f.value_point
-           HAVING CAST(SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) AS REAL)
+           HAVING CAST(SUM(CASE WHEN a.is_correct=1 THEN 0 ELSE 1 END) AS REAL)
                     / COUNT(a.id) > 0.5
            ORDER BY error_rate DESC, wrong_count DESC, MAX(a.answered_at) DESC
            LIMIT ?""", (today_start, int(limit))).fetchall()
