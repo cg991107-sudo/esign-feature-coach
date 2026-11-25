@@ -5,14 +5,12 @@
   <h3 class="fw-bold mb-0"><i class="bi bi-patch-question text-primary"></i> 抢答考核</h3>
   {% if u and u.role in ('sfr','admin') %}
   <div class="d-flex gap-2">
-    {% if weak_features %}
     <form method="post" action="{{url_for('quiz_reinforce_generate')}}" class="d-inline">
       <button class="btn btn-warning" title="按功能历史错误率生成最多5道补强题"
               onclick="return confirm('将按错误率最高的功能生成今日最多5道补强题，确认继续？')">
-        <i class="bi bi-arrow-repeat"></i> 生成今日补强题（{{weak_features|length}}）
+        <i class="bi bi-arrow-repeat"></i> 生成今日错题补强{% if weak_features %}（{{weak_features|length}}个功能）{% endif %}
       </button>
     </form>
-    {% endif %}
     <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
   </div>
   {% endif %}
@@ -25,6 +23,11 @@
     {% for f in weak_features %}{{f.name}}（错误率 {{(f.error_rate * 100)|round(0)|int}}%）{% if not loop.last %}、{% endif %}{% endfor %}。
     点击“生成今日补强题”，系统会为销售生成最多5道针对性题目。
   </div>
+</div>
+{% elif u and u.role in ('sfr','admin') %}
+<div class="alert alert-light border d-flex align-items-start gap-2">
+  <i class="bi bi-info-circle text-primary mt-1"></i>
+  <div>当前暂未识别到错误率大于50%的功能。点击上方“生成今日错题补强”后，系统会重新检查统计结果。</div>
 </div>
 {% endif %}
 
