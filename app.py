@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     duration_min INTEGER DEFAULT 1440,
     auto_generated INTEGER DEFAULT 0,
     judge_mode TEXT DEFAULT 'manual',
+    quiz_mode TEXT DEFAULT 'normal',
     quiz_type TEXT DEFAULT 'qa',
     options TEXT,
     correct_answer TEXT,
@@ -268,6 +269,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     duration_min INTEGER DEFAULT 1440,
     auto_generated INTEGER DEFAULT 0,
     judge_mode TEXT DEFAULT 'manual',
+    quiz_mode TEXT DEFAULT 'normal',
     quiz_type TEXT DEFAULT 'qa',
     options TEXT,
     correct_answer TEXT,
@@ -425,6 +427,7 @@ def migrate_db():
                 ("duration_min", "INTEGER DEFAULT 1440"),
                 ("auto_generated", "INTEGER DEFAULT 0"),
                 ("judge_mode", "TEXT DEFAULT 'manual'"),
+                ("quiz_mode", "TEXT DEFAULT 'normal'"),
                 ("quiz_type", "TEXT DEFAULT 'qa'"),
                 ("options", "TEXT"),
                 ("correct_answer", "TEXT"),
@@ -455,6 +458,7 @@ def migrate_db():
                 ("duration_min", "INTEGER DEFAULT 1440"),
                 ("auto_generated", "INTEGER DEFAULT 0"),
                 ("judge_mode", "TEXT DEFAULT 'manual'"),
+                ("quiz_mode", "TEXT DEFAULT 'normal'"),
                 ("quiz_type", "TEXT DEFAULT 'qa'"),
                 ("options", "TEXT"),
                 ("correct_answer", "TEXT"),
@@ -1057,6 +1061,40 @@ def normalize_option_text(text):
     value = str(text or "").strip()
     return re.sub(r"^(?:[A-Da-d]\s*[.．、:：]\s*)+", "", value).strip()
 
+
+def get_weak_features(db, limit=5):
+    """找出错误率大于50%的功能，供每日错题补强使用。
+
+    只统计已经完成判定的答题；多选题只要没有完整答对，就计入错误。
+    同一功能当天已经生成过补强题，或当前还有进行中的题时，不重复生成。
+    """
+    today_start = china_now().strftime("%Y-%m-%d 00:00:00")
+    return db.execute(
+        """SELECT f.id, f.name, f.scenario, f.value_point,
+                  COUNT(a.id) AS attempts,
+                  SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) AS wrong_count,
+                  CAST(SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) AS REAL)
+                    / COUNT(a.id) AS error_rate
+           FROM features f
+           JOIN quizzes q ON q.feature_id=f.id
+           JOIN answers a ON a.quiz_id=q.id
+           WHERE a.is_correct IS NOT NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM quizzes active_q
+                 WHERE active_q.feature_id=f.id AND active_q.status='active'
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM quizzes today_q
+                 WHERE today_q.feature_id=f.id
+                   AND today_q.quiz_mode='reinforce'
+                   AND today_q.created_at >= ?
+             )
+           GROUP BY f.id, f.name, f.scenario, f.value_point
+           HAVING CAST(SUM(CASE WHEN a.is_correct=0 THEN 1 ELSE 0 END) AS REAL)
+                    / COUNT(a.id) > 0.5
+           ORDER BY error_rate DESC, wrong_count DESC, MAX(a.answered_at) DESC
+           LIMIT ?""", (today_start, int(limit))).fetchall()
+
 @app.route("/quiz")
 @require_login
 def quiz_page():
@@ -1109,8 +1147,9 @@ def quiz_page():
     section_order = {"pending": 0, "answered": 1, "active": 0, "expired": 2}
     quizzes.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     quizzes.sort(key=lambda item: section_order.get(item["section_key"], 9))
+    weak_features = get_weak_features(db, 5) if u and u["role"] in ("sfr", "admin") else []
     return render_template("quiz.html", quizzes=quizzes, u=u, my_answers=my_answers,
-                           now_ts=now_ts)
+                           now_ts=now_ts, weak_features=weak_features)
 
 
 @app.route("/api/generate-quiz")
@@ -1211,6 +1250,61 @@ def quiz_auto_generate():
         made += 1
     db.commit()
     flash(f"系统自动出题完成：成功发布 {made} 道多选题" + (f"，{failed} 道生成失败" if failed else "") + "（满分=正确答案数），当天23:59前可抢答", "success")
+    return redirect(url_for("quiz_page"))
+
+
+@app.route("/quiz/reinforce-generate", methods=["POST"])
+@require_role("sfr", "admin")
+def quiz_reinforce_generate():
+    """每天从错误率大于50%的功能中生成最多5道针对性补强题。"""
+    db = get_db()
+    feats = get_weak_features(db, 5)
+    if not feats:
+        flash("当前没有错误率超过50%的待补强功能，暂不生成补强题。", "info")
+        return redirect(url_for("quiz_page"))
+
+    u = current_user()
+    now = china_now()
+    deadline = china_today_deadline(now)
+    made, failed = 0, 0
+    try:
+        from ai_helper import ai_generate_quiz
+    except Exception:
+        ai_generate_quiz = None
+
+    for f in feats:
+        q = None
+        if ai_generate_quiz:
+            try:
+                q = ai_generate_quiz(f["name"], f["scenario"] or "", f["value_point"] or "", qtype="multi")
+            except Exception:
+                q = None
+        if not q or not q.get("question") or not q.get("options"):
+            failed += 1
+            continue
+        opts = [normalize_option_text(o) for o in q.get("options", []) if str(o).strip()][:4]
+        if len(opts) < 2:
+            failed += 1
+            continue
+        while len(opts) < 4:
+            opts.append("（选项）")
+        ca = "".join(c for c in (q.get("correct_answer") or "").upper() if c in "ABCD")
+        if not ca:
+            failed += 1
+            continue
+        full_score = len(set(ca))
+        options_text = "|||".join(opts)
+        reference = q.get("reference", "") or "本题用于补强该功能对应的客户场景和价值理解。"
+        db.execute("""INSERT INTO quizzes(feature_id,question,answer_hint,sfr_id,status,
+                                    published_at,deadline,duration_min,auto_generated,judge_mode,
+                                    quiz_mode,quiz_type,options,correct_answer,full_score)
+                      VALUES(?,?,?,?,'active',?,?,?,1,'ai','reinforce','multi',?,?,?)""",
+                   (f["id"], q["question"], reference, u["id"],
+                    now.strftime("%Y-%m-%d %H:%M:%S"), deadline.strftime("%Y-%m-%d %H:%M:%S"),
+                    1440, options_text, "".join(sorted(set(ca))), full_score))
+        made += 1
+    db.commit()
+    flash(f"错题补强完成：已生成 {made} 道今日补强题" + (f"，{failed} 道生成失败" if failed else "") + "，当天23:59前可回答。", "success")
     return redirect(url_for("quiz_page"))
 
 
