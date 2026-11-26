@@ -1086,7 +1086,21 @@ def get_weak_features(db, limit=None):
     if limit is not None:
         sql += " LIMIT ?"
         params.append(int(limit))
-    return db.execute(sql, params).fetchall()
+    rows = [dict(row) for row in db.execute(sql, params).fetchall()]
+    # 补强题按中国日期去重：同一功能当天生成过一次后，不能再次生成。
+    today = china_now().strftime("%Y-%m-%d")
+    generated_today = {
+        int(row["feature_id"])
+        for row in db.execute(
+            """SELECT DISTINCT feature_id FROM quizzes
+               WHERE quiz_mode='reinforce' AND feature_id IS NOT NULL
+                 AND published_at >= ? AND published_at <= ?""",
+            (f"{today} 00:00:00", f"{today} 23:59:59")
+        ).fetchall()
+    }
+    for row in rows:
+        row["reinforce_generated_today"] = int(row["id"]) in generated_today
+    return rows
 
 @app.route("/quiz")
 @require_login
@@ -1255,6 +1269,14 @@ def quiz_reinforce_generate():
     selected_fids = [int(x) for x in request.form.getlist("fids") if x.isdigit()]
     if len(selected_fids) > 5:
         flash("每天最多选择5个功能生成错题补强题，请减少选择后再试。", "warning")
+        return redirect(url_for("quiz_page"))
+    # 服务端再次校验当天是否已经生成，避免绕过页面禁用状态重复出题。
+    already_generated = {
+        int(f["id"]) for f in all_weak_features
+        if f.get("reinforce_generated_today")
+    }
+    if any(fid in already_generated for fid in selected_fids):
+        flash("所选功能中有功能今天已经生成过补强题，请取消后再提交。", "warning")
         return redirect(url_for("quiz_page"))
     candidates = {int(f["id"]): f for f in all_weak_features}
     feats = [candidates[fid] for fid in selected_fids if fid in candidates]
