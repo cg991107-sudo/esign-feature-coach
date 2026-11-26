@@ -6,7 +6,7 @@
   {% if u and u.role in ('sfr','admin') %}
   <div class="d-flex gap-2">
     <a href="#reinforce-panel" class="btn btn-warning" title="选择需要补强的功能">
-      <i class="bi bi-arrow-repeat"></i> 选择功能生成补强题{% if weak_features %}（{{weak_features|length}}个）{% endif %}
+      <i class="bi bi-arrow-repeat"></i> 选择功能生成补强题{% if weak_features %}（{{weak_features|selectattr('reinforce_generated_today', 'equalto', false)|list|length}}个可生成）{% endif %}
     </a>
     <a href="{{url_for('quiz_create')}}" class="btn btn-brand"><i class="bi bi-plus-circle"></i> 发布考题</a>
   </div>
@@ -17,7 +17,7 @@
 <div class="card border-warning mb-4" id="reinforce-panel">
   <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-arrow-repeat"></i> 错题补强功能选择</span>
-    <span class="small text-muted">功能清单全部列出，错误率仅作参考，每天最多选择5个</span>
+    <span class="small text-muted">当天已生成的功能不可重复选择，每天最多选择5个</span>
   </div>
   <div class="card-body">
     <form method="post" action="{{url_for('quiz_reinforce_generate')}}" onsubmit="return checkReinforceSelection()">
@@ -29,10 +29,12 @@
         {% for f in weak_features %}
         <div class="col-md-6 col-xl-4">
           <label class="border rounded p-3 d-flex gap-2 align-items-start h-100 reinforce-option">
-            <input class="form-check-input mt-1 reinforce-checkbox" type="checkbox" name="fids" value="{{f.id}}">
+            <input class="form-check-input mt-1 reinforce-checkbox" type="checkbox" name="fids" value="{{f.id}}" {% if f.reinforce_generated_today %}disabled{% endif %}>
             <span>
               <b>{{f.name}}</b><br>
-              {% if f.attempts %}
+              {% if f.reinforce_generated_today %}
+              <span class="badge bg-secondary-subtle text-secondary">今日已生成</span>
+              {% elif f.attempts %}
               <small class="text-muted">{{f.attempts}}次答题 · {{f.wrong_count or 0}}次未答对 · 错误率 {{(f.error_rate * 100)|round(0)|int}}%</small>
               {% if f.error_rate > 0.5 %}<span class="badge bg-danger-subtle text-danger">建议优先补强</span>{% else %}<span class="badge bg-light text-secondary border">可自主选择</span>{% endif %}
               {% else %}<small class="text-muted">暂无答题数据</small><span class="badge bg-light text-secondary border">可自主选择</span>{% endif %}
